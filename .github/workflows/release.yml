@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a tag like v0.0.1 builds the Docker image for amd64, publishes it to
+# Pushing a tag like v1.0.0 or v1.0.0-RC1 builds the Docker image for amd64, publishes it to
 # ghcr.io, and creates the GitHub release with the notes from CHANGELOG.md.
 on:
   push:
@@ -86,5 +86,6 @@ jobs:
             echo "Image: \`docker pull ${IMAGE}:${version}\`"
           } >> notes.md
           flags=""
-          case "$version" in 0.0.*) flags="--prerelease" ;; esac
+          # versions like 1.0.0-RC1, and anything 0.x, are marked as pre-releases
+          case "$version" in 0.*|*-*) flags="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" --title "davlog $GITHUB_REF_NAME" --notes-file notes.md $flags

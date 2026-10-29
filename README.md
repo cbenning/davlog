@@ -76,7 +76,7 @@ printf 'DAVLOG_UID=%s\nDAVLOG_GID=%s\n' "$(id -u)" "$(id -g)" > .env   # so ./da
 docker compose up -d
 ```
 
-davlog is now at `http://localhost:8080/`. Log in with username `notes` and password `notes` (set `DAVLOG_PASSWORD=something-else` to change it). This setup is plain HTTP on localhost only, so use it for trying things out, not for a server other people can reach. The image comes from `ghcr.io/cbenning/davlog` (set `DAVLOG_VERSION=0.0.1` to pin a release instead of `latest`). To build it from your checkout instead, add `-f compose.dev.yaml`: `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
+davlog is now at `http://localhost:8080/`. Log in with username `notes` and password `notes` (set `DAVLOG_PASSWORD=something-else` to change it). This setup is plain HTTP on localhost only, so use it for trying things out, not for a server other people can reach. The image comes from `ghcr.io/cbenning/davlog` (set `DAVLOG_VERSION=1.0.0-RC1` to pin a release instead of `latest`). To build it from your checkout instead, add `-f compose.dev.yaml`: `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
 
 Your files are in `./data`, which is the git repository, and you own it, so plain git works on it:
 

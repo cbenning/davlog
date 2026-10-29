@@ -2,9 +2,9 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
-## 0.0.1 - 2026-10-29
+## 1.0.0-RC1 - 2026-10-29
 
-First release. It is early software: it has been tested with rclone, the litmus suites and a strict notes-sync client, but not widely used.
+First release candidate. It has been tested with rclone, the litmus suites and a strict notes-sync client, but not widely used, so please report anything that breaks.
 
 - WebDAV server over a git working tree. Every upload, delete, move and copy becomes a commit, with `per_request`, `debounce` and `interval` commit modes.
 - Uploads are written atomically through a temp file, so a commit never sees half a file. `.git` and names that imitate it are hidden, and symlinks are never followed.
