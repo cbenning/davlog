@@ -6,8 +6,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, Once, TryLockError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+pub mod auth;
+mod remote;
+
 use anyhow::{Context, Result};
+
 use git2::{ConfigLevel, IndexAddOption, Oid, Repository, RepositoryInitOptions, Signature};
+pub use remote::{Divergence, PushError, PushResult};
 use tracing::warn;
 
 use crate::config::GitConfig;
