@@ -16,7 +16,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 argon2 = "0.6"
-base64 = "0.22"
+base64 = "0.23"
 bytes = "1"
 bytesize = { version = "2", features = ["serde"] }
 dav-server = "0.11"
