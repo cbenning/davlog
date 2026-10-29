@@ -28,7 +28,6 @@ use crate::davfs::GitFs;
 use crate::repo::{ForeignState, Repo};
 use crate::status::Status;
 
-const FAILED_LOGIN_DELAY: Duration = Duration::from_millis(250);
 const RETRY_AFTER_SECS: &str = "30";
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(30);
 
@@ -102,7 +101,7 @@ impl Server {
                     let ctx = self.ctx.clone();
                     let service = service_fn(move |req| {
                         let ctx = ctx.clone();
-                        async move { Ok::<_, std::convert::Infallible>(handle(ctx, req).await) }
+                        async move { Ok::<_, std::convert::Infallible>(handle(ctx, peer, req).await) }
                     });
                     let conn = hyper::server::conn::http1::Builder::new()
                         .serve_connection(TokioIo::new(stream), service);
@@ -204,14 +203,14 @@ async fn quote_getetags(res: Response<Body>) -> Response<Body> {
     Response::from_parts(parts, Body::from(bytes::Bytes::from(fixed)))
 }
 
-async fn handle(ctx: Arc<Ctx>, req: Request<Incoming>) -> Response<Body> {
-    let mut res = route(&ctx, req).await;
+async fn handle(ctx: Arc<Ctx>, peer: SocketAddr, req: Request<Incoming>) -> Response<Body> {
+    let mut res = route(&ctx, peer, req).await;
     res.headers_mut()
         .insert(header::SERVER, HeaderValue::from_static(brand::USER_AGENT));
     res
 }
 
-async fn route(ctx: &Ctx, req: Request<Incoming>) -> Response<Body> {
+async fn route(ctx: &Ctx, peer: SocketAddr, req: Request<Incoming>) -> Response<Body> {
     if req.uri().path() == "/healthz" && matches!(*req.method(), Method::GET | Method::HEAD) {
         let json = serde_json::to_string(&ctx.status.snapshot()).unwrap_or_else(|_| "{}".into());
         let mut res = Response::new(Body::from(json));
@@ -228,7 +227,11 @@ async fn route(ctx: &Ctx, req: Request<Incoming>) -> Response<Body> {
         .and_then(|v| v.to_str().ok());
     if !auth::check(&ctx.auth, authorization) {
         if authorization.is_some() {
-            tokio::time::sleep(FAILED_LOGIN_DELAY).await;
+            // Never log what was typed: a password may have landed in the username field.
+            warn!(%peer, "failed login");
+            if !ctx.auth.failed_login_delay.is_zero() {
+                tokio::time::sleep(ctx.auth.failed_login_delay).await;
+            }
         }
         let mut res = text_response(StatusCode::UNAUTHORIZED, "authentication required\n");
         res.headers_mut().insert(

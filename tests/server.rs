@@ -94,9 +94,8 @@ async fn unauthenticated_is_401_with_challenge() {
     );
 }
 
-#[tokio::test]
-async fn wrong_password_is_401_and_delayed() {
-    let s = start("").await;
+async fn wrong_login_elapsed(extra: &str) -> (StatusCode, Duration) {
+    let s = start(extra).await;
     let started = Instant::now();
     let r = client()
         .get(s.url("/"))
@@ -104,8 +103,22 @@ async fn wrong_password_is_401_and_delayed() {
         .send()
         .await
         .unwrap();
-    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
-    assert!(started.elapsed() >= Duration::from_millis(200));
+    (r.status(), started.elapsed())
+}
+
+#[tokio::test]
+async fn wrong_password_is_401_without_delay_by_default() {
+    let (status, took) = wrong_login_elapsed("").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(took < Duration::from_millis(250), "{took:?}");
+}
+
+#[tokio::test]
+async fn failed_login_delay_is_applied_when_configured() {
+    // `failed_login_delay` belongs to [auth], which `start` already opened
+    let (status, took) = wrong_login_elapsed("failed_login_delay = \"400ms\"\n").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(took >= Duration::from_millis(400), "{took:?}");
 }
 
 #[tokio::test]

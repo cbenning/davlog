@@ -14,7 +14,8 @@ const NEEDS_ANSWER_DELAY: Duration = Duration::from_secs(5);
 fn usage() -> String {
     format!(
         "{name} {version}\n\n\
-         Usage: {name} [--config <path>] [--bootstrap clone|init|abort]\n\n\
+         Usage: {name} [--config <path>] [--bootstrap clone|init|abort]\n\
+         \x20      {name} hash-password     (reads a password on stdin, prints an argon2 hash)\n\n\
          \x20 --config <path>      configuration file (default {config})\n\
          \x20 --bootstrap <choice> answer the first-start question without a prompt\n\
          \x20                      (or set {env}_BOOTSTRAP)\n\
@@ -49,8 +50,36 @@ async fn termination_signal() {
     }
 }
 
+/// `davlog hash-password`: read a password from stdin, print an argon2 hash for
+/// `auth.password_hash`.
+fn hash_password_command() -> ExitCode {
+    let mut input = String::new();
+    if std::io::Read::read_to_string(&mut std::io::stdin(), &mut input).is_err() {
+        eprintln!("{}: could not read the password from stdin", brand::NAME);
+        return ExitCode::FAILURE;
+    }
+    let password = input.trim_end_matches(['\r', '\n']);
+    if password.is_empty() {
+        eprintln!("{}: the password is empty", brand::NAME);
+        return ExitCode::FAILURE;
+    }
+    match davlog::auth::hash_password(password) {
+        Ok(hash) => {
+            println!("{hash}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{}: could not hash the password: {e}", brand::NAME);
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("hash-password") {
+        return hash_password_command();
+    }
     if args.iter().any(|a| a == "-h" || a == "--help") {
         print!("{}", usage());
         return ExitCode::SUCCESS;

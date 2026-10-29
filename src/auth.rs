@@ -1,7 +1,7 @@
 //! HTTP Basic authentication for the single configured user.
 
 use argon2::password_hash::phc::PasswordHash;
-use argon2::password_hash::PasswordVerifier;
+use argon2::password_hash::{PasswordHasher, PasswordVerifier};
 use argon2::Argon2;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -22,6 +22,13 @@ fn credentials(header: &str) -> Option<(String, String)> {
     let text = String::from_utf8(decoded).ok()?;
     let (user, pass) = text.split_once(':')?;
     Some((user.to_string(), pass.to_string()))
+}
+
+/// An argon2id hash of `password`, in the PHC string format `auth.password_hash` takes.
+pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
+    Ok(Argon2::default()
+        .hash_password(password.as_bytes())?
+        .to_string())
 }
 
 /// True if the `Authorization` header carries the configured username and password.
@@ -48,7 +55,6 @@ pub fn check(auth: &AuthConfig, header: Option<&str>) -> bool {
 mod tests {
     use super::*;
     use crate::config::{AuthConfig, PasswordCheck, Secret};
-    use argon2::password_hash::PasswordHasher;
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
 
@@ -56,6 +62,7 @@ mod tests {
         AuthConfig {
             username: "notes".into(),
             password: PasswordCheck::Plain(Secret::new("pw".into())),
+            failed_login_delay: std::time::Duration::ZERO,
         }
     }
 
@@ -98,6 +105,7 @@ mod tests {
         let auth = AuthConfig {
             username: "u".into(),
             password: PasswordCheck::Plain(Secret::new("a:b:c".into())),
+            failed_login_delay: std::time::Duration::ZERO,
         };
         assert!(check(&auth, Some(&basic("u", "a:b:c"))));
     }
@@ -111,9 +119,23 @@ mod tests {
         let auth = AuthConfig {
             username: "notes".into(),
             password: PasswordCheck::Argon2(hash),
+            failed_login_delay: std::time::Duration::ZERO,
         };
         assert!(check(&auth, Some(&basic("notes", "pw"))));
         assert!(!check(&auth, Some(&basic("notes", "wrong"))));
+    }
+
+    #[test]
+    fn hash_password_produces_a_hash_that_check_accepts() {
+        let hash = hash_password("correct horse").unwrap();
+        assert!(hash.starts_with("$argon2"), "{hash}");
+        let auth = AuthConfig {
+            username: "notes".into(),
+            password: PasswordCheck::Argon2(hash),
+            failed_login_delay: std::time::Duration::ZERO,
+        };
+        assert!(check(&auth, Some(&basic("notes", "correct horse"))));
+        assert!(!check(&auth, Some(&basic("notes", "correct horse "))));
     }
 
     #[test]
@@ -121,6 +143,7 @@ mod tests {
         let auth = AuthConfig {
             username: "notes".into(),
             password: PasswordCheck::Argon2("not a hash".into()),
+            failed_login_delay: std::time::Duration::ZERO,
         };
         assert!(!check(&auth, Some(&basic("notes", "not a hash"))));
     }

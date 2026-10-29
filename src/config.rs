@@ -15,6 +15,8 @@ use serde::Deserialize;
 use crate::brand;
 
 const DEFAULT_MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+const DEFAULT_MIN_FREE_SPACE: u64 = 100 * 1024 * 1024;
+const DEFAULT_MAX_CONNECTIONS: usize = 256;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -57,6 +59,7 @@ pub struct Config {
     pub commit: CommitConfig,
     pub push: Option<PushConfig>,
     pub git: GitConfig,
+    pub maintenance: MaintenanceConfig,
     pub notify: NotifyConfig,
 }
 
@@ -72,6 +75,16 @@ pub struct ServerConfig {
 pub struct LimitsConfig {
     /// `None` means unlimited.
     pub max_file_size: Option<u64>,
+    /// Writes that add data get 507 when the disk has less free space than this. 0 = off.
+    pub min_free_space: u64,
+    /// Writes that add data get 507 when the working tree plus `.git` is bigger than this.
+    pub max_repo_size: Option<u64>,
+    /// Simultaneous connections served; further ones wait. 0 = unlimited.
+    pub max_connections: usize,
+    /// How long a client gets to send a request's headers (also bounds idle keep-alive).
+    pub header_read_timeout: Duration,
+    /// How long an upload may stall between chunks before it is cut off.
+    pub body_idle_timeout: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +98,9 @@ pub enum PasswordCheck {
 pub struct AuthConfig {
     pub username: String,
     pub password: PasswordCheck,
+    /// Pause before answering a wrong password. Slows guessing, but holds the connection
+    /// while it waits. Zero means no delay.
+    pub failed_login_delay: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -169,6 +185,13 @@ pub struct EmailConfig {
     pub to: Vec<String>,
 }
 
+/// Background repository upkeep (packing loose objects).
+#[derive(Debug, Clone)]
+pub struct MaintenanceConfig {
+    pub enabled: bool,
+    pub interval: Duration,
+}
+
 #[derive(Debug, Clone)]
 pub struct NotifyConfig {
     pub rate_limit: Duration,
@@ -188,6 +211,8 @@ struct Raw {
     #[serde(default)]
     git: RawGit,
     #[serde(default)]
+    maintenance: RawMaintenance,
+    #[serde(default)]
     notify: RawNotify,
 }
 
@@ -204,6 +229,13 @@ struct RawServer {
 #[serde(deny_unknown_fields)]
 struct RawLimits {
     max_file_size: Option<ByteSize>,
+    min_free_space: Option<ByteSize>,
+    max_repo_size: Option<ByteSize>,
+    max_connections: Option<usize>,
+    #[serde(default, with = "humantime_serde")]
+    header_read_timeout: Option<Duration>,
+    #[serde(default, with = "humantime_serde")]
+    body_idle_timeout: Option<Duration>,
 }
 
 #[derive(Deserialize)]
@@ -212,6 +244,16 @@ struct RawAuth {
     username: String,
     password_file: Option<PathBuf>,
     password_hash: Option<String>,
+    #[serde(default, with = "humantime_serde")]
+    failed_login_delay: Option<Duration>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct RawMaintenance {
+    enabled: Option<bool>,
+    #[serde(default, with = "humantime_serde")]
+    interval: Option<Duration>,
 }
 
 #[derive(Deserialize, Default)]
@@ -328,6 +370,30 @@ impl Config {
             Some(0) => None,
             Some(n) => Some(n),
         };
+        let limits = LimitsConfig {
+            max_file_size,
+            min_free_space: raw
+                .limits
+                .min_free_space
+                .map_or(DEFAULT_MIN_FREE_SPACE, |b| b.as_u64()),
+            max_repo_size: raw
+                .limits
+                .max_repo_size
+                .map(|b| b.as_u64())
+                .filter(|n| *n > 0),
+            max_connections: raw
+                .limits
+                .max_connections
+                .unwrap_or(DEFAULT_MAX_CONNECTIONS),
+            header_read_timeout: raw
+                .limits
+                .header_read_timeout
+                .unwrap_or(Duration::from_secs(30)),
+            body_idle_timeout: raw
+                .limits
+                .body_idle_timeout
+                .unwrap_or(Duration::from_secs(60)),
+        };
 
         let password = if let Some(secret) = env_secret(env, "PASSWORD") {
             PasswordCheck::Plain(secret)
@@ -409,15 +475,23 @@ impl Config {
                 repo_path: raw.server.repo_path,
                 worker_threads: raw.server.worker_threads,
             },
-            limits: LimitsConfig { max_file_size },
+            limits,
             auth: AuthConfig {
                 username: raw.auth.username,
                 password,
+                failed_login_delay: raw.auth.failed_login_delay.unwrap_or(Duration::ZERO),
             },
             commit,
             push,
             git: GitConfig {
                 config: raw.git.config,
+            },
+            maintenance: MaintenanceConfig {
+                enabled: raw.maintenance.enabled.unwrap_or(true),
+                interval: raw
+                    .maintenance
+                    .interval
+                    .unwrap_or(Duration::from_secs(6 * 3600)),
             },
             notify: NotifyConfig {
                 rate_limit: raw
@@ -511,6 +585,48 @@ username = "notes"
             crate::brand::DEFAULT_MESSAGE_TEMPLATE
         );
         assert_eq!(cfg.server.worker_threads, 0);
+    }
+
+    #[test]
+    fn hardening_defaults() {
+        let cfg = parse("").unwrap();
+        assert_eq!(
+            cfg.auth.failed_login_delay,
+            Duration::ZERO,
+            "no delay unless asked for"
+        );
+        assert_eq!(cfg.limits.min_free_space, 100 * 1024 * 1024);
+        assert_eq!(cfg.limits.max_repo_size, None);
+        assert_eq!(cfg.limits.max_connections, 256);
+        assert_eq!(cfg.limits.header_read_timeout, Duration::from_secs(30));
+        assert_eq!(cfg.limits.body_idle_timeout, Duration::from_secs(60));
+        assert!(cfg.maintenance.enabled);
+        assert_eq!(cfg.maintenance.interval, Duration::from_secs(6 * 3600));
+    }
+
+    #[test]
+    fn hardening_settings_parse() {
+        let cfg = Config::parse(
+            &format!(
+                "{BASE}\nfailed_login_delay = \"250ms\"\n[limits]\nmin_free_space = \"1GiB\"\nmax_repo_size = \"20GiB\"\nmax_connections = 0\nheader_read_timeout = \"5s\"\nbody_idle_timeout = \"10s\"\n[maintenance]\nenabled = false\ninterval = \"1h\"\n"
+            ),
+            &pw_env,
+        )
+        .unwrap();
+        assert_eq!(cfg.auth.failed_login_delay, Duration::from_millis(250));
+        assert_eq!(cfg.limits.min_free_space, 1024 * 1024 * 1024);
+        assert_eq!(cfg.limits.max_repo_size, Some(20 * 1024 * 1024 * 1024));
+        assert_eq!(cfg.limits.max_connections, 0);
+        assert_eq!(cfg.limits.header_read_timeout, Duration::from_secs(5));
+        assert!(!cfg.maintenance.enabled);
+        assert_eq!(cfg.maintenance.interval, Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn min_free_space_and_max_repo_size_zero_mean_off() {
+        let cfg = parse("[limits]\nmin_free_space = \"0\"\nmax_repo_size = \"0\"").unwrap();
+        assert_eq!(cfg.limits.min_free_space, 0);
+        assert_eq!(cfg.limits.max_repo_size, None);
     }
 
     #[test]
