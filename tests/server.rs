@@ -398,3 +398,44 @@ async fn graceful_shutdown_stops_the_server() {
         .await;
     assert!(late.is_err(), "no longer accepting");
 }
+
+#[tokio::test]
+async fn propfind_getetag_is_a_quoted_strong_etag_matching_the_header() {
+    let s = start("").await;
+    let c = client();
+    req(&c, "PUT", &s.url("/a.md"))
+        .body("hello")
+        .send()
+        .await
+        .unwrap();
+    let head = req(&c, "HEAD", &s.url("/a.md")).send().await.unwrap();
+    let header_etag = head.headers()["etag"].to_str().unwrap().to_string();
+    assert!(
+        header_etag.starts_with('"') && header_etag.ends_with('"'),
+        "{header_etag}"
+    );
+
+    let r = req(&c, "PROPFIND", &s.url("/"))
+        .header("depth", "1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 207);
+    let xml = r.text().await.unwrap();
+    let values: Vec<&str> = xml
+        .split("<D:getetag>")
+        .skip(1)
+        .map(|rest| rest.split("</D:getetag>").next().unwrap())
+        .collect();
+    assert_eq!(values.len(), 2, "root and a.md: {xml}");
+    assert!(
+        values
+            .iter()
+            .all(|v| v.starts_with('"') && v.ends_with('"')),
+        "{values:?}"
+    );
+    assert!(
+        values.contains(&header_etag.as_str()),
+        "{values:?} vs {header_etag}"
+    );
+}

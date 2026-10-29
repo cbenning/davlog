@@ -1,0 +1,31 @@
+# Example deployment. TLS is not handled here: put a reverse proxy in front.
+#
+# One-time setup:
+#   mkdir -p data secrets && sudo chown 10001 data
+#   printf '%s' 'choose-a-password' > secrets/password
+#   cp config.docker.example.toml davgit.toml   # then edit
+#
+# On first start with an empty ./data and no remote history the repository is created
+# for you. If the server has to ask a bootstrap question it exits with code 10 and the
+# restart policy below will loop on it until you answer, for example with
+#   DAVGIT_BOOTSTRAP=init    (or clone, or abort)
+# or by running once interactively: docker compose run --rm davgit
+services:
+  davgit:
+    build: .
+    image: davgit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/data
+      - ./davgit.toml:/etc/davgit/davgit.toml:ro
+    secrets:
+      - davgit_password
+    # environment:
+    #   DAVGIT_BOOTSTRAP: init
+    #   RUST_LOG: info
+
+secrets:
+  davgit_password:
+    file: ./secrets/password

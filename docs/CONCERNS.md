@@ -38,7 +38,7 @@ Each concern was raised when scoping the project. The owner said to work through
 
 18. **Initial repo state.** Decided: the server creates the repo itself when none exists, and initial content comes through WebDAV. See "Repository bootstrap" in `DESIGN.md`: ambiguous cases are put to the operator at first start.
 
-19. **Observability.** Structured logs, plus optionally a `/healthz` endpoint (not part of the WebDAV tree, or authenticated) reporting last commit time, last push time, paused state. A paused push should also be visible there.
+19. **Observability.** Implemented: structured logs to stderr via `tracing` (`RUST_LOG`, ANSI only on a terminal) and an unauthenticated `GET /healthz` that returns only last commit and push time, whether pushing is paused, and whether a person has git state in the repo (never file names).
 
 20. **Alert delivery safety.** Never hold the repo mutex while sending notifications. Time out SMTP. Queue and rate limit. Failures are logged only.
 

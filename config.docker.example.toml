@@ -1,0 +1,17 @@
+# Container configuration: see config.example.toml for every option.
+
+[server]
+listen = "0.0.0.0:8080"
+repo_path = "/data"
+
+[auth]
+username = "notes"
+password_file = "/run/secrets/davgit_password"
+
+# Optional: push to a write-only backup remote.
+# [push]
+# url = "git@example.com:me/notes.git"
+# branch = "main"
+# interval = "10m"
+# ssh_key = "/run/secrets/davgit_ssh_key"
+# known_hosts = "/etc/davgit/known_hosts"

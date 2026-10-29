@@ -261,3 +261,22 @@ A throwaway benchmark of commit cost (path-specific staging versus add-all, with
 Empty directories (owner delegated the choice): suggested default is to let them exist on disk only and not add placeholder files, with an optional `track_empty_dirs` setting that writes a `.gitkeep`. Pick whichever keeps clients consistent: a client that creates a folder and then lists it must still see it.
 
 Max file size: the exact default and whether the limit is checked from `Content-Length`, while streaming, or both. A request without `Content-Length` (chunked) must still be cut off mid-stream and its temp file removed.
+
+## As built (2026-10-28)
+
+Where the implementation differs from, or settled, the text above. The plan is `docs/superpowers/plans/2026-10-28-davgit-v1.md`.
+
+- **Staging is path-scoped in every commit mode.** A commit stages exactly the paths that changed (literal, not glob). Add-all is used only for the startup and shutdown cases. This replaces the "dirty flag plus add-all" guess.
+- **Waiting for the commit happens in the HTTP layer.** After the WebDAV handler returns a 2xx for a mutating request, the server calls `Committer::flush()` (when `per_request` and `wait_for_commit`), so a request waits once. `dav-server` calls the filesystem once per child on a recursive DELETE or COPY, and `per_request` commits as soon as a change is recorded, so a recursive DELETE can make several commits.
+- **Config additions:** `[push].url` (the server adds the remote itself) and `[git.config]` (every git setting comes from the app config; the host's system, global, XDG and program-data git config is ignored).
+- **`/healthz` is unauthenticated** and returns only `last_commit_unix`, `last_push_unix`, `push_paused` and `foreign_git_state`.
+- **Invalid UTF-8 in a path** gets 400 from the server before `dav-server` sees it.
+- **Uploads** use a temp file in `.git/<TMP_DIR_NAME>` renamed on `flush`. `LOCK` on a missing path creates the lock but not an empty file.
+- **`dav-server` quirk fixed:** PROPFIND `getetag` is emitted without quotes (the `ETag` header has them). The server quotes the value so strict clients see a strong ETag.
+- **Dead properties** are not supported: `PROPPATCH` returns 501 (litmus `props` 11/14 and `locks` 38/41; every failure is a `PROPPATCH`).
+- **SSH known_hosts:** plain entries only; hashed (`|1|`), `@revoked` and `@cert-authority` entries never match. SSH push has unit tests but was not run against a real SSH server.
+- **fsync:** `git2` does not expose `GIT_OPT_ENABLE_FSYNC_GITDIR`. Setting `core.fsync` in `[git.config]` made no measurable difference in the benchmark, so whether libgit2 honours it is unverified.
+- **Startup:** a dirty tree is committed as `davgit: commit changes found at startup` unless a person has git state in `.git`. With `[push]` configured, a HEAD on a different branch than `push.branch` is a refusal to start (with an alert).
+- **Alerts:** each notifier has its own queue and worker; rate limiting happens when an event is raised; `Dispatcher::drain` delivers queued alerts before exit. A foreign-git-state monitor polls every 2 s.
+- **Exit codes:** 0 clean (also after `abort`), 1 error, 2 bad usage or config, 10 needs a bootstrap answer (after a 5 s pause).
+- **Real clients:** rclone round trip identical with every change committed; litmus `basic` 16/16, `copymove` 13/13, `http` 4/4; the HelixNotes CLI syncs two vaults through the server including edits and deletes.
