@@ -16,6 +16,7 @@ use crate::bootstrap::{self, Action, Choice, ResolveError, Terminal};
 use crate::brand;
 use crate::committer::Committer;
 use crate::config::Config;
+use crate::disk::DiskGuard;
 use crate::notify::email::EmailNotifier;
 use crate::notify::{AlertSink, Dispatcher, Event, EventKind, Notifier, Severity};
 use crate::pusher::Pusher;
@@ -24,6 +25,7 @@ use crate::server::Server;
 use crate::status::Status;
 
 const MONITOR_INTERVAL: Duration = Duration::from_secs(2);
+const DISK_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 pub struct Options {
@@ -172,7 +174,17 @@ pub async fn start(
         stop_rx.clone(),
     )));
 
-    let server = Server::bind(&cfg, repo, committer.clone(), status).await?;
+    let server = Server::bind(&cfg, repo, committer.clone(), status.clone()).await?;
+    let disk = server.disk();
+    tasks.push(tokio::spawn(
+        disk.clone().run_refresh(stopped(stop_rx.clone())),
+    ));
+    tasks.push(tokio::spawn(monitor_disk(
+        disk,
+        status,
+        alerts.clone(),
+        stop_rx.clone(),
+    )));
     let addr = server.local_addr();
     info!(%addr, "{} is serving", brand::NAME);
     let server = tokio::spawn(server.serve(stopped(stop_rx)));
@@ -272,6 +284,52 @@ async fn monitor_git_state(
                     _ => {}
                 }
                 last = now;
+            }
+            _ = &mut stopped => break,
+        }
+    }
+}
+
+/// Alert when the disk gets too full for new data, and again when it recovers.
+async fn monitor_disk(
+    disk: Arc<DiskGuard>,
+    status: Arc<Status>,
+    alerts: Arc<dyn AlertSink>,
+    stop: watch::Receiver<bool>,
+) {
+    let mut low = false;
+    let mut ticker = tokio::time::interval(DISK_CHECK_INTERVAL);
+    let stopped = stopped(stop);
+    tokio::pin!(stopped);
+    loop {
+        tokio::select! {
+            _ = ticker.tick() => {
+                let problem = disk.check().err();
+                status.set_disk_low(problem.is_some());
+                match (low, problem) {
+                    (false, Some(problem)) => {
+                        low = true;
+                        warn!(%problem, "writes that add data are being refused");
+                        alerts.alert(Event::new(
+                            EventKind::DiskLow,
+                            Severity::Error,
+                            "the disk is too full for new data",
+                            format!(
+                                "{problem}.\nWrites that add data return 507 until this clears; reads and deletes still work. Free some space or raise the limit."
+                            ),
+                        ));
+                    }
+                    (true, None) => {
+                        low = false;
+                        alerts.alert(Event::new(
+                            EventKind::Recovered(Box::new(EventKind::DiskLow)),
+                            Severity::Recovered,
+                            "there is room for new data again",
+                            "Writes have resumed.",
+                        ));
+                    }
+                    _ => {}
+                }
             }
             _ = &mut stopped => break,
         }

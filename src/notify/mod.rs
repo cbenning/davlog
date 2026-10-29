@@ -27,6 +27,7 @@ pub enum EventKind {
     CommitFailed,
     RepoBadState,
     ForeignGitState,
+    DiskLow,
     Recovered(Box<EventKind>),
 }
 
@@ -38,6 +39,7 @@ impl EventKind {
             EventKind::CommitFailed => "commit_failed",
             EventKind::RepoBadState => "repo_bad_state",
             EventKind::ForeignGitState => "foreign_git_state",
+            EventKind::DiskLow => "disk_low",
             EventKind::Recovered(_) => "recovered",
         }
     }

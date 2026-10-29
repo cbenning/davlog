@@ -13,6 +13,7 @@ struct Inner {
     last_push: Option<SystemTime>,
     paused: Option<String>,
     foreign: Option<ForeignState>,
+    disk_low: bool,
 }
 
 #[derive(Default)]
@@ -28,6 +29,8 @@ pub struct StatusSnapshot {
     pub push_paused: Option<String>,
     /// True while a person has rebase/merge state or an index lock in `.git`.
     pub foreign_git_state: bool,
+    /// True while writes that add data are refused for lack of space.
+    pub disk_low: bool,
 }
 
 fn unix(t: SystemTime) -> u64 {
@@ -59,6 +62,10 @@ impl Status {
         self.write().foreign = Some(state);
     }
 
+    pub fn set_disk_low(&self, low: bool) {
+        self.write().disk_low = low;
+    }
+
     pub fn snapshot(&self) -> StatusSnapshot {
         let inner = self.inner.read().unwrap_or_else(|p| p.into_inner());
         StatusSnapshot {
@@ -66,6 +73,7 @@ impl Status {
             last_push_unix: inner.last_push.map(unix),
             push_paused: inner.paused.clone(),
             foreign_git_state: matches!(inner.foreign, Some(s) if s != ForeignState::None),
+            disk_low: inner.disk_low,
         }
     }
 }
@@ -83,7 +91,8 @@ mod tests {
                 last_commit_unix: None,
                 last_push_unix: None,
                 push_paused: None,
-                foreign_git_state: false
+                foreign_git_state: false,
+                disk_low: false
             }
         );
         s.set_paused(Some("diverged".into()));

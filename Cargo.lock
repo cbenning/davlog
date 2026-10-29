@@ -278,6 +278,7 @@ dependencies = [
  "hyper-util",
  "lettre",
  "reqwest",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

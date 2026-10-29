@@ -28,6 +28,7 @@ use crate::brand;
 use crate::committer::Committer;
 use crate::config::{AuthConfig, CommitMode, Config};
 use crate::davfs::GitFs;
+use crate::disk::DiskGuard;
 use crate::repo::{ForeignState, Repo};
 use crate::status::Status;
 
@@ -44,6 +45,7 @@ struct Ctx {
     status: Arc<Status>,
     max_file_size: Option<u64>,
     body_idle_timeout: Duration,
+    disk: Arc<DiskGuard>,
     /// Answer only after the commit finished (per_request mode with `wait_for_commit`).
     wait_for_commit: bool,
 }
@@ -75,6 +77,11 @@ impl Server {
             .filesystem(Box::new(fs))
             .locksystem(MemLs::new())
             .build_handler();
+        let disk = Arc::new(DiskGuard::new(
+            repo.workdir().to_path_buf(),
+            cfg.limits.min_free_space,
+            cfg.limits.max_repo_size,
+        ));
         let ctx = Arc::new(Ctx {
             handler,
             auth: cfg.auth.clone(),
@@ -83,6 +90,7 @@ impl Server {
             status,
             max_file_size: cfg.limits.max_file_size,
             body_idle_timeout: cfg.limits.body_idle_timeout,
+            disk,
             wait_for_commit: cfg.commit.mode == CommitMode::PerRequest
                 && cfg.commit.wait_for_commit,
         });
@@ -92,6 +100,11 @@ impl Server {
             max_connections: cfg.limits.max_connections,
             header_read_timeout: cfg.limits.header_read_timeout,
         })
+    }
+
+    /// The disk-space guard, so the caller can keep it fresh and watch it.
+    pub fn disk(&self) -> Arc<DiskGuard> {
+        self.ctx.disk.clone()
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -375,6 +388,16 @@ async fn route(ctx: &Ctx, peer: SocketAddr, req: Request<Incoming>) -> Response<
                 HeaderValue::from_static(RETRY_AFTER_SECS),
             );
             return res;
+        }
+    }
+
+    if matches!(req.method().as_str(), "PUT" | "COPY" | "MKCOL" | "PATCH") {
+        if let Err(problem) = ctx.disk.check() {
+            warn!(%problem, "refusing a write: the disk is too full");
+            return text_response(
+                StatusCode::INSUFFICIENT_STORAGE,
+                "the server is out of space for new data; deletes still work\n",
+            );
         }
     }
 

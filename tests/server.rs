@@ -627,3 +627,93 @@ async fn a_slow_but_steady_upload_is_not_cut_off() {
         b"abcdef"
     );
 }
+
+// ---- disk guard ----
+
+#[tokio::test]
+async fn writes_that_add_data_get_507_when_free_space_is_below_the_floor() {
+    let s = start("[limits]\nmin_free_space = \"999TiB\"\n").await;
+    std::fs::write(s.dir.path().join("existing.md"), "x").unwrap();
+    let c = client();
+    for (method, path) in [("PUT", "/new.md"), ("MKCOL", "/dir/")] {
+        let r = req(&c, method, &s.url(path))
+            .body("x")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status().as_u16(), 507, "{method}");
+    }
+    let r = req(&c, "COPY", &s.url("/existing.md"))
+        .header("destination", s.url("/copy.md"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 507, "COPY");
+    assert!(!s.dir.path().join("new.md").exists());
+
+    // reads and deletes still work, so a full disk can be dealt with
+    assert_eq!(
+        req(&c, "GET", &s.url("/existing.md"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let r = req(&c, "PROPFIND", &s.url("/"))
+        .header("depth", "1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 207);
+    let r = req(&c, "DELETE", &s.url("/existing.md"))
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_success(), "{}", r.status());
+}
+
+#[tokio::test]
+async fn writes_get_507_when_the_repo_is_over_its_size_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("big.bin"), vec![0u8; 50_000]).unwrap();
+    let (rdir, repo) = (dir, ());
+    let _ = repo;
+    // start() makes its own temp repo, so build this one by hand
+    setup();
+    let r = davlog::repo::Repo::open_or_init(rdir.path(), "main").unwrap();
+    let toml = format!(
+        "[server]\nlisten = \"127.0.0.1:0\"\nrepo_path = \"{}\"\n[auth]\nusername = \"notes\"\n[limits]\nmax_repo_size = \"10KiB\"\n",
+        rdir.path().display()
+    );
+    let cfg = Config::parse(&toml, &|k: &str| {
+        (k == "DAVLOG_PASSWORD").then(|| "pw".to_string())
+    })
+    .unwrap();
+    let status = Arc::new(Status::new());
+    let committer = Committer::spawn(
+        r.clone(),
+        cfg.commit.clone(),
+        status.clone(),
+        RecordingSink::new(),
+    );
+    let server = Server::bind(&cfg, r, committer, status).await.unwrap();
+    let addr = server.local_addr();
+    tokio::spawn(server.serve(std::future::pending()));
+    let c = client();
+    let put = c
+        .put(format!("http://{addr}/new.md"))
+        .basic_auth("notes", Some("pw"))
+        .body("x")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(put.status().as_u16(), 507);
+    let del = c
+        .delete(format!("http://{addr}/big.bin"))
+        .basic_auth("notes", Some("pw"))
+        .send()
+        .await
+        .unwrap();
+    assert!(del.status().is_success(), "{}", del.status());
+}

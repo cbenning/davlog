@@ -332,3 +332,51 @@ async fn concurrent_burst_has_no_index_lock_errors_and_commits_everything() {
     assert!(n.kinds().is_empty(), "no commit failures: {:?}", n.kinds());
     app.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn a_full_disk_alerts_once_and_shows_in_healthz() {
+    let dir = tempfile::tempdir().unwrap();
+    let n = RecordingNotifier::new();
+    let app = started(dir.path(), "[limits]\nmin_free_space = \"999TiB\"\n", &n).await;
+    wait_until(|| n.kinds().contains(&EventKind::DiskLow)).await;
+    let health: serde_json::Value = client()
+        .get(url(&app, "/healthz"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(health["disk_low"], true, "{health}");
+    let r = req("PUT", url(&app, "/a.md"))
+        .body("x")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 507);
+    app.shutdown().await.unwrap();
+    assert_eq!(
+        n.kinds()
+            .iter()
+            .filter(|k| **k == EventKind::DiskLow)
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn a_healthy_disk_shows_disk_low_false() {
+    let dir = tempfile::tempdir().unwrap();
+    let n = RecordingNotifier::new();
+    let app = started(dir.path(), "[limits]\nmin_free_space = \"0\"\n", &n).await;
+    let health: serde_json::Value = client()
+        .get(url(&app, "/healthz"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(health["disk_low"], false, "{health}");
+    app.shutdown().await.unwrap();
+}
