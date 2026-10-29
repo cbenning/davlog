@@ -14,4 +14,4 @@ First release. It is early software: it has been tested with rclone, the litmus 
 - Sets itself up: creates the repository on first start, and asks (or exits with code 10 in a container) when the right answer isn't obvious.
 - Limits against abuse: file size, free disk and repository size, connections, slow headers and stalled uploads. Failed logins are logged, and the delay on a wrong password is configurable.
 - Repacks its own repository in the background without ever deleting an object.
-- Docker images for linux/amd64 and linux/arm64 on `ghcr.io/cbenning/davlog`, with Compose files for trying it on localhost and for running it behind Caddy with automatic HTTPS.
+- A Docker image for linux/amd64 on `ghcr.io/cbenning/davlog` (arm64 is not published yet), with Compose files for trying it on localhost and for running it behind Caddy with automatic HTTPS.

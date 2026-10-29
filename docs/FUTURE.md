@@ -66,6 +66,10 @@ For setups where other people legitimately push to the remote branch. It would b
 
 `PROPPATCH` returns 501 today, which accounts for every litmus failure (`props` 11/14, `locks` 38/41). Supporting it means storing dead properties somewhere, probably a side file inside `.git`. No client the project has met needs it, so it is only worth doing for one that does.
 
+## An arm64 Docker image
+
+The release workflow publishes linux/amd64 only. Building arm64 under QEMU on a GitHub runner takes hours, because the build compiles about 230 crates plus libgit2, libssh2 and OpenSSL. Options: build each platform on its own native runner (`ubuntu-24.04-arm`, free for public repositories) and merge the manifests, or cross-compile arm64 on amd64 in the Dockerfile.
+
 ## Smaller ideas
 
 - More alert channels: webhook, ntfy, Matrix, a command hook. The `Notifier` trait is ready for them.
