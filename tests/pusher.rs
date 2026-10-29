@@ -125,9 +125,13 @@ async fn divergence_pauses_alerts_once_and_leaves_repo_untouched() {
     assert!(event.details.contains("their change"), "{}", event.details);
     assert!(event.details.contains("not supported"), "{}", event.details);
     let workdir = f.repo.workdir().display().to_string();
-    assert!(event
-        .details
-        .contains(&format!("git -C {workdir} fetch origin")));
+    // the exact wording depends on whether the test runs in a container; src/pusher.rs
+    // unit-tests both forms
+    assert!(
+        event.details.contains(&workdir),
+        "names where the repository is"
+    );
+    assert!(event.details.contains(" fetch origin"));
     assert!(event.details.contains("rebase origin/main"));
     assert!(event.details.contains("--force-with-lease origin main"));
 }

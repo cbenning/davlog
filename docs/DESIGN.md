@@ -169,11 +169,7 @@ Content: ahead and behind counts and the remote's last commit. Other failure kin
 
 ### Possible later
 
-Not planned for v1, kept here so the ideas are not lost:
-
-- **Conflict branch** (`on_conflict = "branch"`): on divergence, create `davlog/conflict-<timestamp>` at HEAD, point HEAD at it without a checkout, and keep committing and pushing there so off-site backup continues. The operator later merges it into the home branch with a real merge commit (not a squash or forge rebase-merge, which break the ancestor check), and the server returns to the home branch when the conflict branch is an ancestor of it. HEAD would be the only state; a refs scan for unmerged conflict branches would supply awareness. Needs an owner decision on defaults and on online switch-back before building.
-- **Automatic rebase** for setups where others legitimately push. Conflicts, an extra write-lock window and abort-on-error handling would come with it.
-- **Hot failover**: an active instance plus a standby that fast-forwards from the remote, with fencing of the old active node. If both accept writes the pushes diverge, and the divergent-remote rule pauses pushing and alerts, so the failure is safe and loud. LOCK state is in memory and is lost on failover.
+Ideas left out of v1 (the conflict branch, automatic rebase, hot failover, dead properties and smaller ones) are written up, with the reasoning, in [`FUTURE.md`](FUTURE.md).
 
 ## Alerting
 

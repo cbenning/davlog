@@ -149,7 +149,13 @@ impl Pusher {
         .await
         .unwrap_or_else(|e| Err(format!("diagnosis task failed: {e}")));
 
-        let details = divergence_details(&self.cfg, self.repo.workdir(), diagnosis);
+        let details = divergence_details(
+            &self.cfg,
+            self.repo.workdir(),
+            diagnosis,
+            in_container(),
+            rustix::process::getuid().as_raw(),
+        );
         let was_paused = self.paused;
         self.paused = true;
         self.status
@@ -199,10 +205,19 @@ fn failure_hint(e: &PushError) -> &'static str {
     }
 }
 
+/// True when running inside a container, where the repository path davlog sees is not
+/// a path on the host and the image has no `git`.
+fn in_container() -> bool {
+    std::path::Path::new("/.dockerenv").exists()
+        || std::path::Path::new("/run/.containerenv").exists()
+}
+
 fn divergence_details(
     cfg: &PushConfig,
     workdir: &std::path::Path,
     diagnosis: Result<crate::repo::Divergence, String>,
+    container: bool,
+    uid: u32,
 ) -> String {
     let dir = workdir.display();
     let (remote, branch) = (&cfg.remote, &cfg.branch);
@@ -213,23 +228,112 @@ fn divergence_details(
         ),
         Err(e) => format!("The remote could not be inspected: {e}"),
     };
+    let (intro, git) = if container {
+        (
+            format!(
+                "These commands run in the repository, which davlog sees at {dir}. In Docker that is the directory you mounted there, and the image has no git, so run them on the host, from that directory, as the user that owns it:\n  cd <the directory mounted at {dir}>"
+            ),
+            format!("sudo -u '#{uid}' git"),
+        )
+    } else {
+        (String::new(), format!("git -C {dir}"))
+    };
+    let merge_intro = if intro.is_empty() {
+        "To keep the remote's changes, merge or rebase by hand:".to_string()
+    } else {
+        format!("{intro}\nTo keep the remote's changes, merge or rebase by hand:")
+    };
     format!(
         "The remote branch {remote}/{branch} has changed independently of this server.\n\
          {facts}\n\n\
          Concurrent writes to the remote are not supported. Pushing is paused; the server \
          keeps serving and committing locally, and it resumes pushing by itself once a \
          push is a fast-forward again.\n\n\
-         To keep the remote's changes, merge or rebase by hand:\n  \
-         git -C {dir} fetch {remote}\n  \
-         git -C {dir} rebase {remote}/{branch}\n\
+         {merge_intro}\n  \
+         {git} fetch {remote}\n  \
+         {git} rebase {remote}/{branch}\n\
          To overwrite the remote with this server's history, after checking it:\n  \
-         git -C {dir} push --force-with-lease {remote} {branch}"
+         {git} push --force-with-lease {remote} {branch}"
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn push_cfg() -> PushConfig {
+        PushConfig {
+            remote: "origin".into(),
+            url: None,
+            branch: "main".into(),
+            interval: std::time::Duration::from_secs(600),
+            auth: crate::config::PushAuth::None,
+        }
+    }
+
+    fn divergence() -> crate::repo::Divergence {
+        crate::repo::Divergence {
+            ahead: 2,
+            behind: 1,
+            remote_tip: None,
+            remote_tip_summary: "abc1234 a change made elsewhere".into(),
+        }
+    }
+
+    #[test]
+    fn outside_a_container_the_commands_use_git_dash_c_with_the_path() {
+        let text = divergence_details(
+            &push_cfg(),
+            std::path::Path::new("/srv/notes"),
+            Ok(divergence()),
+            false,
+            1000,
+        );
+        assert!(text.contains("ahead 2, behind 1"), "{text}");
+        assert!(text.contains("abc1234 a change made elsewhere"), "{text}");
+        assert!(text.contains("git -C /srv/notes fetch origin"), "{text}");
+        assert!(
+            text.contains("git -C /srv/notes rebase origin/main"),
+            "{text}"
+        );
+        assert!(
+            text.contains("git -C /srv/notes push --force-with-lease origin main"),
+            "{text}"
+        );
+        assert!(!text.contains("sudo"), "{text}");
+    }
+
+    #[test]
+    fn inside_a_container_the_commands_are_for_the_host_and_name_the_user() {
+        let text = divergence_details(
+            &push_cfg(),
+            std::path::Path::new("/data"),
+            Ok(divergence()),
+            true,
+            10001,
+        );
+        assert!(
+            !text.contains("git -C /data"),
+            "/data does not exist on the host: {text}"
+        );
+        assert!(
+            text.contains("/data"),
+            "says where davlog sees the repository: {text}"
+        );
+        assert!(
+            text.contains("no git"),
+            "explains why not inside the container: {text}"
+        );
+        assert!(text.contains("sudo -u '#10001' git fetch origin"), "{text}");
+        assert!(
+            text.contains("sudo -u '#10001' git rebase origin/main"),
+            "{text}"
+        );
+        assert!(
+            text.contains("sudo -u '#10001' git push --force-with-lease origin main"),
+            "{text}"
+        );
+    }
 
     #[test]
     fn each_failure_kind_gets_its_own_hint() {

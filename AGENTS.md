@@ -9,7 +9,7 @@
 
 ## What to do next
 
-1. Read `docs/CONTEXT.md`, then `docs/DESIGN.md`, `docs/CONCERNS.md` and `docs/OPEN-QUESTIONS.md`.
+1. Read `docs/CONTEXT.md`, then `docs/DESIGN.md`, `docs/CONCERNS.md` and `docs/OPEN-QUESTIONS.md`. `docs/FUTURE.md` lists ideas that were left out on purpose.
 2. Ask the owner to review the draft design and answer the open questions that change what gets built. Do not re-ask things listed as "Decided".
 3. Only after the owner approves the design: write an implementation plan (if the superpowers plugin is available, use its `writing-plans` skill), then build.
 4. Do not scaffold, add dependencies, or write product code before that approval.
