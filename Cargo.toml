@@ -3,6 +3,7 @@ name = "davlog"
 version = "0.1.0"
 edition = "2021"
 description = "WebDAV server backed by a git working tree"
+license = "MIT"
 
 [lib]
 name = "davlog"

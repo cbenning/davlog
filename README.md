@@ -3,6 +3,8 @@
 <p align="center"><strong>A WebDAV server where every save is a git commit.</strong></p>
 
 <p align="center">
+  <a href="https://github.com/cbenning/davlog/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/cbenning/davlog/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-dea584?logo=rust&logoColor=white">
   <img alt="Backed by git" src="https://img.shields.io/badge/backed%20by-git-F05032?logo=git&logoColor=white">
   <img alt="WebDAV" src="https://img.shields.io/badge/WebDAV-class%201%20%26%202-4c8bf5">
@@ -12,6 +14,7 @@
 </p>
 
 <p align="center">
+  <a href="#highlights">Highlights</a> &middot;
   <a href="#try-it">Try it</a> &middot;
   <a href="#what-its-picky-about">What it's picky about</a> &middot;
   <a href="#when-things-go-wrong">When things go wrong</a> &middot;
@@ -38,6 +41,19 @@ b81d0e4 davlog: move drafts/idea.md -> projects/idea.md
 Want an off-site copy? Give it a remote and it pushes on a timer. If something looks wrong it stops and emails you, instead of guessing.
 
 *(davlog is a working name and may change.)*
+
+## Highlights
+
+- 📝 **Every save is a commit.** Uploads, deletes, moves and copies all land in git with readable messages like `davlog: update notes/a.md`. History, diffs and undo are plain git.
+- 🧱 **Whole files only.** Uploads are written to a temp file and renamed into place, so nobody, including the committer, ever sees half a file. A dropped connection leaves nothing behind.
+- ⚡ **Quick.** A single-file commit took about 5 ms in a 5,000-file tree, and writes that arrive during a commit are committed together.
+- 🛟 **Careful with your backup remote.** It pushes on a timer, but never rebases, merges or force-pushes. If the remote changed behind its back, it pauses and tells you.
+- 📬 **Tells you when something is wrong.** Email alerts (more channels can be added) with the commands to fix it, rate-limited, and a "recovered" note when it clears.
+- 🤝 **Gets out of your way.** Start a rebase or merge inside its repo and it stands down: writes get `503`, reads keep working, and it carries on when you're done.
+- 🧰 **Sets itself up.** No `git init` step. On first start it creates the repo, or asks what to do if the situation is ambiguous.
+- 🔌 **Plain WebDAV.** No special client needed. Tested with rclone, the litmus suite and a strict notes-sync client. Class 2 locking for Finder and Explorer.
+- 🔒 **Locked down.** `.git` is invisible to clients, symlinks are never followed, and passwords are compared in constant time (argon2 hashes supported).
+- 📦 **One binary, or Docker.** TOML config, secrets from files or environment, and a `/healthz` endpoint that never lists file names.
 
 ## Why this exists
 
@@ -161,3 +177,7 @@ Rust, `tokio` and `hyper`, the [`dav-server`](https://crates.io/crates/dav-serve
 | `docs/CONCERNS.md` | Hard parts and edge cases, with the handling chosen. |
 | `docs/OPEN-QUESTIONS.md` | Questions asked and answered. |
 | `docs/superpowers/plans/2026-10-28-davlog-v1.md` | The implementation plan. |
+
+## License
+
+[MIT](LICENSE)
