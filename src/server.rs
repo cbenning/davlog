@@ -4,7 +4,9 @@
 
 use std::future::Future;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -15,9 +17,10 @@ use http::{header, HeaderValue, Method, Request, Response, StatusCode};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::server::graceful::GracefulShutdown;
 use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
 use tracing::{debug, error, warn};
 
 use crate::auth;
@@ -29,6 +32,8 @@ use crate::repo::{ForeignState, Repo};
 use crate::status::Status;
 
 const RETRY_AFTER_SECS: &str = "30";
+/// Largest PROPFIND answer we will hold in memory to quote its ETags.
+const MAX_PROPFIND_RESPONSE: usize = 128 * 1024 * 1024;
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(30);
 
 struct Ctx {
@@ -38,6 +43,7 @@ struct Ctx {
     repo: Repo,
     status: Arc<Status>,
     max_file_size: Option<u64>,
+    body_idle_timeout: Duration,
     /// Answer only after the commit finished (per_request mode with `wait_for_commit`).
     wait_for_commit: bool,
 }
@@ -45,6 +51,8 @@ struct Ctx {
 pub struct Server {
     listener: TcpListener,
     ctx: Arc<Ctx>,
+    max_connections: usize,
+    header_read_timeout: Duration,
 }
 
 impl Server {
@@ -74,10 +82,16 @@ impl Server {
             repo,
             status,
             max_file_size: cfg.limits.max_file_size,
+            body_idle_timeout: cfg.limits.body_idle_timeout,
             wait_for_commit: cfg.commit.mode == CommitMode::PerRequest
                 && cfg.commit.wait_for_commit,
         });
-        Ok(Server { listener, ctx })
+        Ok(Server {
+            listener,
+            ctx,
+            max_connections: cfg.limits.max_connections,
+            header_read_timeout: cfg.limits.header_read_timeout,
+        })
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -87,8 +101,18 @@ impl Server {
     /// Serve until `shutdown` resolves, then stop accepting and let in-flight requests finish.
     pub async fn serve(self, shutdown: impl Future<Output = ()>) -> Result<()> {
         let graceful = GracefulShutdown::new();
+        let slots =
+            (self.max_connections > 0).then(|| Arc::new(Semaphore::new(self.max_connections)));
         tokio::pin!(shutdown);
         loop {
+            // Take a slot before accepting, so a flood waits in the kernel's queue instead.
+            let permit = match &slots {
+                Some(slots) => tokio::select! {
+                    permit = slots.clone().acquire_owned() => permit.ok(),
+                    _ = &mut shutdown => break,
+                },
+                None => None,
+            };
             tokio::select! {
                 accepted = self.listener.accept() => {
                     let (stream, peer) = match accepted {
@@ -103,10 +127,15 @@ impl Server {
                         let ctx = ctx.clone();
                         async move { Ok::<_, std::convert::Infallible>(handle(ctx, peer, req).await) }
                     });
-                    let conn = hyper::server::conn::http1::Builder::new()
-                        .serve_connection(TokioIo::new(stream), service);
+                    let mut http = hyper::server::conn::http1::Builder::new();
+                    http.timer(TokioTimer::new());
+                    http.header_read_timeout(
+                        (!self.header_read_timeout.is_zero()).then_some(self.header_read_timeout),
+                    );
+                    let conn = http.serve_connection(TokioIo::new(stream), service);
                     let conn = graceful.watch(conn);
                     tokio::spawn(async move {
+                        let _slot = permit;
                         if let Err(e) = conn.await {
                             debug!(%peer, error = %e, "connection ended with error");
                         }
@@ -121,6 +150,89 @@ impl Server {
             _ = tokio::time::sleep(SHUTDOWN_GRACE) => warn!("gave up waiting for in-flight requests"),
         }
         Ok(())
+    }
+}
+
+/// A request body that fails if the client stops sending for `timeout` (zero disables).
+/// The clock restarts every time data arrives, so a slow but steady upload is fine.
+struct IdleTimeout<B> {
+    inner: B,
+    timeout: Duration,
+    sleep: Pin<Box<tokio::time::Sleep>>,
+    started: bool,
+}
+
+impl<B> IdleTimeout<B> {
+    fn new(inner: B, timeout: Duration) -> Self {
+        IdleTimeout {
+            inner,
+            timeout,
+            sleep: Box::pin(tokio::time::sleep(timeout)),
+            started: false,
+        }
+    }
+
+    fn restart_clock(&mut self) {
+        if !self.timeout.is_zero() {
+            self.sleep
+                .as_mut()
+                .reset(tokio::time::Instant::now() + self.timeout);
+        }
+    }
+}
+
+#[derive(Debug)]
+enum BodyError {
+    Read(hyper::Error),
+    Stalled,
+}
+
+impl std::fmt::Display for BodyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BodyError::Read(e) => write!(f, "{e}"),
+            BodyError::Stalled => f.write_str("the client stopped sending the request body"),
+        }
+    }
+}
+
+impl std::error::Error for BodyError {}
+
+impl http_body::Body for IdleTimeout<Incoming> {
+    type Data = bytes::Bytes;
+    type Error = BodyError;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        let this = &mut *self;
+        if !this.started {
+            // time spent before the handler first reads the body is not the client's fault
+            this.started = true;
+            this.restart_clock();
+        }
+        match Pin::new(&mut this.inner).poll_frame(cx) {
+            Poll::Ready(frame) => {
+                this.restart_clock();
+                Poll::Ready(frame.map(|f| f.map_err(BodyError::Read)))
+            }
+            Poll::Pending => {
+                if !this.timeout.is_zero() && this.sleep.as_mut().poll(cx).is_ready() {
+                    Poll::Ready(Some(Err(BodyError::Stalled)))
+                } else {
+                    Poll::Pending
+                }
+            }
+        }
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.inner.size_hint()
     }
 }
 
@@ -184,13 +296,16 @@ fn quote_getetag_values(xml: &str) -> String {
     out
 }
 
-async fn quote_getetags(res: Response<Body>) -> Response<Body> {
+async fn quote_getetags(res: Response<Body>, limit: usize) -> Response<Body> {
     let (mut parts, body) = res.into_parts();
-    let bytes = match body.collect().await {
+    let bytes = match http_body_util::Limited::new(body, limit).collect().await {
         Ok(collected) => collected.to_bytes(),
         Err(e) => {
             error!(error = %e, "could not read the PROPFIND response");
-            return text_response(StatusCode::INTERNAL_SERVER_ERROR, "internal error\n");
+            return text_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the listing is too large; list subfolders one at a time\n",
+            );
         }
     };
     let fixed = match String::from_utf8(bytes.to_vec()) {
@@ -275,9 +390,11 @@ async fn route(ctx: &Ctx, peer: SocketAddr, req: Request<Incoming>) -> Response<
     }
 
     let propfind = req.method().as_str() == "PROPFIND";
+    let (parts, body) = req.into_parts();
+    let req = Request::from_parts(parts, IdleTimeout::new(body, ctx.body_idle_timeout));
     let mut res = ctx.handler.handle(req).await;
     if propfind && res.status().as_u16() == 207 {
-        res = quote_getetags(res).await;
+        res = quote_getetags(res, MAX_PROPFIND_RESPONSE).await;
     }
     if mutating && res.status().is_success() && ctx.wait_for_commit {
         if let Err(e) = ctx.committer.flush().await {
@@ -314,5 +431,26 @@ mod tests {
     fn text_without_getetag_is_unchanged() {
         let xml = "<D:multistatus><D:href>/a</D:href></D:multistatus>";
         assert_eq!(quote_getetag_values(xml), xml);
+    }
+}
+
+#[cfg(test)]
+mod size_limit_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_response_over_the_limit_becomes_a_500() {
+        let big = Response::new(Body::from("x".repeat(1000)));
+        let res = quote_getetags(big, 100).await;
+        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn a_response_under_the_limit_passes_through_quoted() {
+        let small = Response::new(Body::from("<D:getetag>a</D:getetag>"));
+        let res = quote_getetags(small, 1000).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&bytes[..], b"<D:getetag>\"a\"</D:getetag>");
     }
 }

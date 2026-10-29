@@ -452,3 +452,178 @@ async fn propfind_getetag_is_a_quoted_strong_etag_matching_the_header() {
         "{values:?} vs {header_etag}"
     );
 }
+
+// ---- connection and request hardening ----
+
+use base64::Engine;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+
+fn basic() -> String {
+    format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode("notes:pw")
+    )
+}
+
+/// Wait for the server to close (or reset) the connection, or for `within` to pass.
+/// Returns true if the connection was closed.
+async fn closed_within(stream: &mut TcpStream, within: Duration) -> bool {
+    let mut buf = [0u8; 1024];
+    let result = tokio::time::timeout(within, async {
+        loop {
+            match stream.read(&mut buf).await {
+                Ok(0) | Err(_) => return,
+                Ok(_) => continue, // an error response, then the close
+            }
+        }
+    })
+    .await;
+    result.is_ok()
+}
+
+#[tokio::test]
+async fn propfind_depth_infinity_is_refused() {
+    let s = start("").await;
+    let r = req(&client(), "PROPFIND", &s.url("/"))
+        .header("depth", "infinity")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 501);
+    assert!(r.text().await.unwrap().contains("propfind-finite-depth"));
+}
+
+#[tokio::test]
+async fn propfind_without_a_depth_header_does_not_recurse() {
+    let s = start("").await;
+    let c = client();
+    req(&c, "MKCOL", &s.url("/a/")).send().await.unwrap();
+    req(&c, "MKCOL", &s.url("/a/b/")).send().await.unwrap();
+    req(&c, "PUT", &s.url("/a/b/deep.md"))
+        .body("x")
+        .send()
+        .await
+        .unwrap();
+    let r = req(&c, "PROPFIND", &s.url("/")).send().await.unwrap();
+    assert_eq!(r.status().as_u16(), 207);
+    let text = r.text().await.unwrap();
+    assert!(text.contains("/a/"), "{text}");
+    assert!(
+        !text.contains("deep.md") && !text.contains("/a/b"),
+        "must not recurse: {text}"
+    );
+}
+
+#[tokio::test]
+async fn an_oversized_propfind_body_is_rejected() {
+    let s = start("").await;
+    let big = format!(
+        "<?xml version=\"1.0\"?><D:propfind xmlns:D=\"DAV:\"><D:prop>{}</D:prop></D:propfind>",
+        "<D:x/>".repeat(40_000)
+    );
+    let r = req(&client(), "PROPFIND", &s.url("/"))
+        .header("depth", "0")
+        .body(big)
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_client_error(), "{}", r.status());
+}
+
+#[tokio::test]
+async fn a_client_that_never_finishes_its_headers_is_dropped() {
+    let s = start("[limits]\nheader_read_timeout = \"300ms\"\n").await;
+    let mut stream = TcpStream::connect(s.addr).await.unwrap();
+    stream.write_all(b"GET / HTT").await.unwrap();
+    assert!(
+        closed_within(&mut stream, Duration::from_secs(5)).await,
+        "slow headers must time out"
+    );
+}
+
+#[tokio::test]
+async fn an_idle_keep_alive_connection_is_closed() {
+    let s = start("[limits]\nheader_read_timeout = \"300ms\"\n").await;
+    let mut stream = TcpStream::connect(s.addr).await.unwrap();
+    assert!(
+        closed_within(&mut stream, Duration::from_secs(5)).await,
+        "an idle connection holds a slot only briefly"
+    );
+}
+
+#[tokio::test]
+async fn connections_beyond_the_limit_wait_until_a_slot_frees_up() {
+    let s = start("[limits]\nmax_connections = 2\n").await;
+    let first = TcpStream::connect(s.addr).await.unwrap();
+    let _second = TcpStream::connect(s.addr).await.unwrap();
+    // let the server accept both before the third arrives
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let mut third = TcpStream::connect(s.addr).await.unwrap();
+    third
+        .write_all(b"GET /healthz HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf = [0u8; 64];
+    let early = tokio::time::timeout(Duration::from_millis(600), third.read(&mut buf)).await;
+    assert!(
+        early.is_err(),
+        "the third connection is not served while two are open"
+    );
+
+    drop(first);
+    let n = tokio::time::timeout(Duration::from_secs(5), third.read(&mut buf))
+        .await
+        .expect("served once a slot is free")
+        .unwrap();
+    assert!(n > 0 && buf.starts_with(b"HTTP/1.1 200"), "{:?}", &buf[..n]);
+}
+
+#[tokio::test]
+async fn an_upload_that_stalls_is_cut_off_and_leaves_nothing() {
+    let s = start("[limits]\nbody_idle_timeout = \"300ms\"\n").await;
+    let mut stream = TcpStream::connect(s.addr).await.unwrap();
+    let head = format!(
+        "PUT /stalled.md HTTP/1.1\r\nHost: x\r\nAuthorization: {}\r\nContent-Length: 10\r\n\r\nabc",
+        basic()
+    );
+    stream.write_all(head.as_bytes()).await.unwrap();
+    assert!(
+        closed_within(&mut stream, Duration::from_secs(5)).await,
+        "a stalled upload must be cut off"
+    );
+    assert!(!s.dir.path().join("stalled.md").exists());
+    let tmp = s.dir.path().join(".git/davlog-tmp");
+    assert_eq!(std::fs::read_dir(tmp).map(|d| d.count()).unwrap_or(0), 0);
+    assert!(head_paths(&s.repo).is_empty());
+}
+
+#[tokio::test]
+async fn a_slow_but_steady_upload_is_not_cut_off() {
+    let s = start("[limits]\nbody_idle_timeout = \"600ms\"\n").await;
+    let mut stream = TcpStream::connect(s.addr).await.unwrap();
+    let head = format!(
+        "PUT /steady.md HTTP/1.1\r\nHost: x\r\nAuthorization: {}\r\nContent-Length: 6\r\nConnection: close\r\n\r\n",
+        basic()
+    );
+    stream.write_all(head.as_bytes()).await.unwrap();
+    for chunk in ["ab", "cd", "ef"] {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        stream.write_all(chunk.as_bytes()).await.unwrap();
+    }
+    let mut out = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut out))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        out.starts_with(b"HTTP/1.1 201"),
+        "{}",
+        String::from_utf8_lossy(&out)
+    );
+    assert_eq!(
+        std::fs::read(s.dir.path().join("steady.md")).unwrap(),
+        b"abcdef"
+    );
+}

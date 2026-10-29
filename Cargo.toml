@@ -23,6 +23,7 @@ dav-server = "0.11"
 futures-util = "0.3"
 git2 = { version = "0.21", default-features = false, features = ["https", "ssh"] }
 http = "1"
+http-body = "1"
 http-body-util = "0.1"
 humantime-serde = "1"
 hyper = { version = "1", features = ["server", "http1"] }

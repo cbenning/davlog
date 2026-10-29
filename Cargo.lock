@@ -271,6 +271,7 @@ dependencies = [
  "futures-util",
  "git2",
  "http",
+ "http-body",
  "http-body-util",
  "humantime-serde",
  "hyper",
