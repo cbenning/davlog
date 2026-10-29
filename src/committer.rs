@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use tracing::{error, info, warn};
 
-use crate::change::{Change, Op};
+use crate::change::{Change, ChangeSink, Op};
 use crate::config::{CommitConfig, CommitMode};
 use crate::notify::{AlertSink, Event, EventKind, Severity};
 use crate::repo::{ForeignState, Repo};
@@ -94,6 +94,12 @@ impl Committer {
             .map_err(|_| CommitError("committer has stopped".into()))?;
         rx.await
             .map_err(|_| CommitError("committer has stopped".into()))?
+    }
+}
+
+impl ChangeSink for Committer {
+    fn record(&self, change: Change) {
+        Committer::record(self, change);
     }
 }
 

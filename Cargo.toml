@@ -16,8 +16,10 @@ path = "src/main.rs"
 anyhow = "1"
 argon2 = "0.6"
 base64 = "0.22"
+bytes = "1"
 bytesize = { version = "2", features = ["serde"] }
 dav-server = "0.11"
+futures-util = "0.3"
 git2 = { version = "0.21", default-features = false, features = ["https", "ssh"] }
 http = "1"
 http-body-util = "0.1"

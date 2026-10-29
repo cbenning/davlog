@@ -131,3 +131,26 @@ pub fn set_objects_readonly(root: &Path, readonly: bool) {
     )
     .unwrap();
 }
+
+use davgit::change::{Change, ChangeSink};
+
+#[derive(Default)]
+pub struct RecordingChanges {
+    pub changes: Mutex<Vec<Change>>,
+}
+
+impl RecordingChanges {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    pub fn all(&self) -> Vec<Change> {
+        self.changes.lock().unwrap().clone()
+    }
+}
+
+impl ChangeSink for RecordingChanges {
+    fn record(&self, change: Change) {
+        self.changes.lock().unwrap().push(change);
+    }
+}

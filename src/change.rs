@@ -21,6 +21,11 @@ impl Op {
     }
 }
 
+/// Receives mutations from the WebDAV filesystem. Must never block.
+pub trait ChangeSink: Send + Sync {
+    fn record(&self, change: Change);
+}
+
 /// Paths are repo-relative, use `/` separators and have no leading slash.
 /// For `Move` and `Copy`, `path` is the source and `to` is the destination.
 #[derive(Debug, Clone, PartialEq, Eq)]
