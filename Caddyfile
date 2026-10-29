@@ -1,0 +1,14 @@
+# Caddy terminates TLS and forwards to davlog on the compose network.
+#
+# Set DAVLOG_DOMAIN to your hostname (it must point at this machine, with ports 80 and 443
+# reachable) and Caddy gets and renews a Let's Encrypt certificate by itself. Left as
+# "localhost", Caddy issues a certificate from its own local CA, which is fine for trying it out.
+{$DAVLOG_DOMAIN:localhost} {
+	header Strict-Transport-Security "max-age=31536000"
+
+	# /healthz is for the container's own health check; do not publish it.
+	@healthz path /healthz
+	respond @healthz 404
+
+	reverse_proxy davlog:8080
+}

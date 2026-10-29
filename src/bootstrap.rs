@@ -13,7 +13,7 @@ use git2::{FetchOptions, RemoteCallbacks};
 
 use crate::brand;
 use crate::config::Config;
-use crate::repo::{auth, remote_has_branch, Repo};
+use crate::repo::{self, auth, remote_has_branch, Repo};
 
 /// Exit code when the server needs a bootstrap answer and cannot ask.
 pub const EXIT_NEEDS_BOOTSTRAP_ANSWER: i32 = 10;
@@ -118,7 +118,11 @@ pub fn inspect(cfg: &Config) -> Result<Situation> {
     let path = &cfg.server.repo_path;
     let push = cfg.push.as_ref().filter(|p| p.url.is_some());
 
-    if git2::Repository::open(path).is_ok() {
+    let opened = git2::Repository::open(path);
+    if matches!(&opened, Err(e) if e.code() == git2::ErrorCode::Owner) {
+        return Err(repo::owner_error(path));
+    }
+    if opened.is_ok() {
         let Some(push) = push else {
             return Ok(Situation::ExistingRepo);
         };
@@ -249,7 +253,9 @@ pub fn bootstrap_flag(
             value = Some(v.to_string());
         }
     }
-    let value = value.or_else(|| env(&format!("{}_BOOTSTRAP", brand::ENV_PREFIX)));
+    let value = value.or_else(|| {
+        env(&format!("{}_BOOTSTRAP", brand::ENV_PREFIX)).filter(|v| !v.trim().is_empty())
+    });
     match value {
         None => Ok(None),
         Some(text) => match Choice::parse(&text) {

@@ -76,16 +76,20 @@ Point a WebDAV client at `http://127.0.0.1:8080/` and log in with the config's u
 
 There's no `git init` step: if `repo_path` has no repository, davlog makes one.
 
-### Docker
+### Docker, with HTTPS
 
 ```sh
 mkdir -p data secrets && sudo chown 10001 data
-printf '%s' 'choose-a-password' > secrets/password
-cp config.docker.example.toml davlog.toml   # edit
-docker compose up -d
+printf '%s' 'choose-a-long-password' > secrets/password
+cp config.docker.example.toml davlog.toml       # edit
+DAVLOG_DOMAIN=notes.example.com docker compose -f compose.https.yaml up -d
 ```
 
-Details are in `compose.yaml`. The image doesn't do TLS; put a reverse proxy (Caddy, nginx, Traefik) in front. Basic auth over plain HTTP is not something to expose to the internet.
+`compose.https.yaml` runs davlog behind [Caddy](https://caddyserver.com/), which gets and renews a Let's Encrypt certificate for `DAVLOG_DOMAIN` by itself and redirects HTTP to HTTPS. Only Caddy publishes ports; davlog is reachable only from inside the compose network. Without `DAVLOG_DOMAIN` it serves `https://localhost` with a certificate from Caddy's local CA, which is good for a first try (`HTTP_PORT` and `HTTPS_PORT` change the published ports if 80 and 443 are not available to you).
+
+The compose file also runs davlog with a read-only root filesystem, no Linux capabilities and `no-new-privileges`, and the `Caddyfile` hides `/healthz` from the outside.
+
+**Use HTTPS.** davlog speaks plain HTTP and Basic auth, so your password crosses the wire in the clear unless TLS is in front of it. Any reverse proxy works (nginx, Traefik, a cloud load balancer); `Caddyfile` is the shortest example. `compose.yaml` is the same container without a proxy, for localhost or a network you trust.
 
 ## What it's picky about
 

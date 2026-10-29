@@ -12,8 +12,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home-dir /data --no-create-home davlog
 COPY --from=build /src/target/release/davlog /usr/local/bin/davlog
+# The repository lives here; a volume mounted here must be writable by uid 10001.
+RUN mkdir /data && chown 10001 /data
 USER 10001
-# The repository lives here; mount a volume owned by uid 10001.
 VOLUME /data
 EXPOSE 8080
 # Matches `listen = "0.0.0.0:8080"` in the mounted config.

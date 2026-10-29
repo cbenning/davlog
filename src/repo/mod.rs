@@ -41,6 +41,15 @@ pub fn isolate_from_user_git_config() {
     });
 }
 
+/// libgit2 refuses a repository directory owned by another user. Say how to fix it.
+pub fn owner_error(path: &Path) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{} is not owned by the user running {}. Change its owner to that user (in Docker, `chown 10001 <dir>` on the host) or run the server as the directory's owner",
+        path.display(),
+        crate::brand::NAME
+    )
+}
+
 /// Git state that the server did not create and must not touch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ForeignState {
@@ -72,6 +81,7 @@ impl Repo {
                 opts.initial_head(branch);
                 Repository::init_opts(path, &opts).context("init repository")?
             }
+            Err(e) if e.code() == git2::ErrorCode::Owner => return Err(owner_error(path)),
             Err(e) => return Err(e).context("open repository"),
         };
         let workdir = repo

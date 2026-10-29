@@ -1,4 +1,5 @@
-# Example deployment. TLS is not handled here: put a reverse proxy in front.
+# Example deployment without TLS, for localhost or a trusted network. For HTTPS with an
+# automatic certificate use compose.https.yaml instead.
 #
 # One-time setup:
 #   mkdir -p data secrets && sudo chown 10001 data

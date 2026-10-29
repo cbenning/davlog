@@ -223,6 +223,12 @@ fn flag_beats_env_and_env_is_used_when_flag_absent() {
     let env = |k: &str| (k == "DAVLOG_BOOTSTRAP").then(|| "abort".to_string());
     let none = |_: &str| None;
     assert_eq!(bootstrap_flag(&args(&[]), &none).unwrap(), None);
+    let empty = |k: &str| (k == "DAVLOG_BOOTSTRAP").then(String::new);
+    assert_eq!(
+        bootstrap_flag(&args(&[]), &empty).unwrap(),
+        None,
+        "an empty variable (compose passes one when unset) means no answer"
+    );
     assert_eq!(
         bootstrap_flag(&args(&[]), &env).unwrap(),
         Some(Choice::Abort)

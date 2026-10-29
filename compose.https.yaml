@@ -1,0 +1,62 @@
+# davlog behind Caddy, with automatic HTTPS. Only Caddy publishes ports; davlog is
+# reachable only from inside the compose network.
+#
+# One-time setup:
+#   mkdir -p data secrets && sudo chown 10001 data
+#   printf '%s' 'choose-a-long-password' > secrets/password
+#   cp config.docker.example.toml davlog.toml        # then edit
+#
+# Then:
+#   DAVLOG_DOMAIN=notes.example.com docker compose -f compose.https.yaml up -d
+#
+# Without DAVLOG_DOMAIN it serves https://localhost with a certificate from Caddy's local CA.
+# HTTP_PORT and HTTPS_PORT change the published ports (handy for rootless Docker or Podman,
+# which cannot bind 80 and 443).
+#
+# If davlog has to ask a bootstrap question it exits with code 10 and the restart policy
+# loops on it. Answer once with DAVLOG_BOOTSTRAP=init (or clone, or abort).
+services:
+  davlog:
+    build: .
+    image: ${DAVLOG_IMAGE:-davlog:latest}
+    restart: unless-stopped
+    expose:
+      - "8080"
+    volumes:
+      - ./data:/data
+      - ./davlog.toml:/etc/davlog/davlog.toml:ro
+    secrets:
+      - davlog_password
+    environment:
+      DAVLOG_BOOTSTRAP: ${DAVLOG_BOOTSTRAP:-}
+    # Only /data needs to be writable.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      davlog:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    environment:
+      DAVLOG_DOMAIN: ${DAVLOG_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+secrets:
+  davlog_password:
+    file: ./secrets/password
