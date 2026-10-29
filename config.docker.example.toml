@@ -6,12 +6,12 @@ repo_path = "/data"
 
 [auth]
 username = "notes"
-password_file = "/run/secrets/davgit_password"
+password_file = "/run/secrets/davlog_password"
 
 # Optional: push to a write-only backup remote.
 # [push]
 # url = "git@example.com:me/notes.git"
 # branch = "main"
 # interval = "10m"
-# ssh_key = "/run/secrets/davgit_ssh_key"
-# known_hosts = "/etc/davgit/known_hosts"
+# ssh_key = "/run/secrets/davlog_ssh_key"
+# known_hosts = "/etc/davlog/known_hosts"

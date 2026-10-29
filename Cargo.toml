@@ -1,15 +1,15 @@
 [package]
-name = "davgit"
+name = "davlog"
 version = "0.1.0"
 edition = "2021"
 description = "WebDAV server backed by a git working tree"
 
 [lib]
-name = "davgit"
+name = "davlog"
 path = "src/lib.rs"
 
 [[bin]]
-name = "davgit"
+name = "davlog"
 path = "src/main.rs"
 
 [dependencies]

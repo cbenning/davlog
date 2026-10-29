@@ -4,12 +4,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::*;
-use davgit::change::{Change, Op};
-use davgit::committer::Committer;
-use davgit::config::{CommitConfig, CommitMode};
-use davgit::notify::EventKind;
-use davgit::repo::Repo;
-use davgit::status::Status;
+use davlog::change::{Change, Op};
+use davlog::committer::Committer;
+use davlog::config::{CommitConfig, CommitMode};
+use davlog::notify::EventKind;
+use davlog::repo::Repo;
+use davlog::status::Status;
 
 struct Fixture {
     dir: tempfile::TempDir,

@@ -46,7 +46,7 @@ Run one small server that exposes a directory over WebDAV. The directory is a gi
 | Push rejected | Remote divergence is unsupported. Fetch for diagnosis only, pause pushing, alert, keep serving and committing. No rebase, no merge. Resumes automatically when a push is a fast-forward again (supersedes the earlier "fetch, rebase, retry" decision) |
 | Alerting | Abstracted so it can notify several ways. Email is first |
 | Clients | Do not assume any specific WebDAV client |
-| Project | Standalone, unaffiliated with HelixNotes. Working name `davgit` |
+| Project | Standalone, unaffiliated with HelixNotes. Working name `davlog` |
 | Alert events | Any problem: divergent remote, push failures, and other errors (commit failure, bad repo state). The exact list is the builder's to flesh out, with "anything that goes wrong" as the rule |
 | Failure behaviour | On any push problem, keep serving and keep committing locally. Only pushing stops |
 | Per-request commit timing | Configurable whether the HTTP response waits for the commit. Default: wait (`wait_for_commit = true`) |
@@ -88,7 +88,7 @@ Decided: when the situation is ambiguous at first start, the service asks the op
 Decided: the likely deployment is a Docker container, so printing to the console is fine. How the question works:
 
 - With a TTY (for example `docker run -it` or `docker compose run`), the service prints the situation and the choices (clone the remote, initialise fresh and keep local files, or abort) and reads the answer from stdin.
-- Without a TTY, the service must not guess. It logs a clear message to stderr naming the setting that answers the question, then exits with a distinct non-zero exit code. The setting is available both as a flag and as an environment variable (for example `--bootstrap clone|init|abort` and `DAVGIT_BOOTSTRAP`), since containers are usually configured through the environment.
+- Without a TTY, the service must not guess. It logs a clear message to stderr naming the setting that answers the question, then exits with a distinct non-zero exit code. The setting is available both as a flag and as an environment variable (for example `--bootstrap clone|init|abort` and `DAVLOG_BOOTSTRAP`), since containers are usually configured through the environment.
 - Guess: a container with a restart policy will loop on that exit. Document it, and consider a short sleep before exiting so logs stay readable.
 - After bootstrap the repo exists, so the question never comes up again.
 
@@ -122,7 +122,7 @@ Path-scoped staging is about 7 times cheaper than add-all on this tree, and grou
 
 Default mode: Decided, `per_request` (with group commit). The benchmark above is well inside the agreed bar (median under 50 ms, 1,000-commit burst under 60 s), so the default stands.
 
-Common to all modes: configurable author name and email, and a commit message template. Suggested default message: a one-line summary such as `davgit: update 3 files` followed by a body listing changed paths with their change type, truncated after a limit. In per_request mode the message can name the single path and operation.
+Common to all modes: configurable author name and email, and a commit message template. Suggested default message: a one-line summary such as `davlog: update 3 files` followed by a body listing changed paths with their change type, truncated after a limit. In per_request mode the message can name the single path and operation.
 
 A final commit runs on graceful shutdown and a startup check commits (or alerts about) a dirty tree left from a crash.
 
@@ -171,7 +171,7 @@ Content: ahead and behind counts and the remote's last commit. Other failure kin
 
 Not planned for v1, kept here so the ideas are not lost:
 
-- **Conflict branch** (`on_conflict = "branch"`): on divergence, create `davgit/conflict-<timestamp>` at HEAD, point HEAD at it without a checkout, and keep committing and pushing there so off-site backup continues. The operator later merges it into the home branch with a real merge commit (not a squash or forge rebase-merge, which break the ancestor check), and the server returns to the home branch when the conflict branch is an ancestor of it. HEAD would be the only state; a refs scan for unmerged conflict branches would supply awareness. Needs an owner decision on defaults and on online switch-back before building.
+- **Conflict branch** (`on_conflict = "branch"`): on divergence, create `davlog/conflict-<timestamp>` at HEAD, point HEAD at it without a checkout, and keep committing and pushing there so off-site backup continues. The operator later merges it into the home branch with a real merge commit (not a squash or forge rebase-merge, which break the ancestor check), and the server returns to the home branch when the conflict branch is an ancestor of it. HEAD would be the only state; a refs scan for unmerged conflict branches would supply awareness. Needs an owner decision on defaults and on online switch-back before building.
 - **Automatic rebase** for setups where others legitimately push. Conflicts, an extra write-lock window and abort-on-error handling would come with it.
 - **Hot failover**: an active instance plus a standby that fast-forwards from the remote, with fencing of the old active node. If both accept writes the pushes diverge, and the divergent-remote rule pauses pushing and alerts, so the failure is safe and loud. LOCK state is in memory and is lost on failover.
 
@@ -195,16 +195,16 @@ max_file_size = "100MiB"     # 413 Payload Too Large above this; "0" or omitted 
 
 [auth]
 username = "notes"
-password_file = "/etc/davgit/password"   # or password_hash
+password_file = "/etc/davlog/password"   # or password_hash
 
 [commit]
 mode = "per_request"          # per_request | debounce | interval
 debounce = "5s"             # debounce mode only
 max_wait = "60s"             # debounce mode only
 interval = "5m"              # interval mode only
-author_name = "davgit"
-author_email = "davgit@localhost"
-message_template = "davgit: {summary}"
+author_name = "davlog"
+author_email = "davlog@localhost"
+message_template = "davlog: {summary}"
 wait_for_commit = true       # per_request mode: respond only after the commit finished
 
 # All git behaviour is set here, never by the host: the system and global git
@@ -220,8 +220,8 @@ remote = "origin"
 url = "git@example.com:me/notes.git"   # the server adds the remote itself
 branch = "main"              # home branch
 interval = "10m"
-ssh_key = "/etc/davgit/id_ed25519"       # or token_file for https
-known_hosts = "/etc/davgit/known_hosts"  # required with ssh_key
+ssh_key = "/etc/davlog/id_ed25519"       # or token_file for https
+known_hosts = "/etc/davlog/known_hosts"  # required with ssh_key
 
 [notify]
 rate_limit = "24h"
@@ -231,8 +231,8 @@ smtp_host = "smtp.example.com"
 smtp_port = 587
 tls = "starttls"
 username = "alerts@example.com"
-password_file = "/etc/davgit/smtp-password"
-from = "davgit <alerts@example.com>"
+password_file = "/etc/davlog/smtp-password"
+from = "davlog <alerts@example.com>"
 to = ["me@example.com"]
 ```
 
@@ -264,7 +264,7 @@ Max file size: the exact default and whether the limit is checked from `Content-
 
 ## As built (2026-10-28)
 
-Where the implementation differs from, or settled, the text above. The plan is `docs/superpowers/plans/2026-10-28-davgit-v1.md`.
+Where the implementation differs from, or settled, the text above. The plan is `docs/superpowers/plans/2026-10-28-davlog-v1.md`.
 
 - **Staging is path-scoped in every commit mode.** A commit stages exactly the paths that changed (literal, not glob). Add-all is used only for the startup and shutdown cases. This replaces the "dirty flag plus add-all" guess.
 - **Waiting for the commit happens in the HTTP layer.** After the WebDAV handler returns a 2xx for a mutating request, the server calls `Committer::flush()` (when `per_request` and `wait_for_commit`), so a request waits once. `dav-server` calls the filesystem once per child on a recursive DELETE or COPY, and `per_request` commits as soon as a change is recorded, so a recursive DELETE can make several commits.
@@ -276,7 +276,7 @@ Where the implementation differs from, or settled, the text above. The plan is `
 - **Dead properties** are not supported: `PROPPATCH` returns 501 (litmus `props` 11/14 and `locks` 38/41; every failure is a `PROPPATCH`).
 - **SSH known_hosts:** plain entries only; hashed (`|1|`), `@revoked` and `@cert-authority` entries never match. SSH push has unit tests but was not run against a real SSH server.
 - **fsync:** `git2` does not expose `GIT_OPT_ENABLE_FSYNC_GITDIR`. Setting `core.fsync` in `[git.config]` made no measurable difference in the benchmark, so whether libgit2 honours it is unverified.
-- **Startup:** a dirty tree is committed as `davgit: commit changes found at startup` unless a person has git state in `.git`. With `[push]` configured, a HEAD on a different branch than `push.branch` is a refusal to start (with an alert).
+- **Startup:** a dirty tree is committed as `davlog: commit changes found at startup` unless a person has git state in `.git`. With `[push]` configured, a HEAD on a different branch than `push.branch` is a refusal to start (with an alert).
 - **Alerts:** each notifier has its own queue and worker; rate limiting happens when an event is raised; `Dispatcher::drain` delivers queued alerts before exit. A foreign-git-state monitor polls every 2 s.
 - **Exit codes:** 0 clean (also after `abort`), 1 error, 2 bad usage or config, 10 needs a bootstrap answer (after a 5 s pause).
 - **Real clients:** rclone round trip identical with every change committed; litmus `basic` 16/16, `copymove` 13/13, `http` 4/4; the HelixNotes CLI syncs two vaults through the server including edits and deletes.

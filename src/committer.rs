@@ -335,28 +335,28 @@ mod tests {
     use super::*;
     use crate::change::{Change, Op};
 
-    const T: &str = "davgit: {summary}";
+    const T: &str = "davlog: {summary}";
 
     #[test]
     fn render_message_single_and_multi() {
         let single = render_message(T, &[Change::new(Op::Put, "notes/a.md")]);
-        assert_eq!(single, "davgit: update notes/a.md");
+        assert_eq!(single, "davlog: update notes/a.md");
 
         assert_eq!(
             render_message(T, &[Change::new(Op::Delete, "a")]),
-            "davgit: delete a"
+            "davlog: delete a"
         );
         assert_eq!(
             render_message(T, &[Change::new(Op::Mkcol, "d")]),
-            "davgit: mkdir d"
+            "davlog: mkdir d"
         );
         assert_eq!(
             render_message(T, &[Change::with_target(Op::Move, "a", "b")]),
-            "davgit: move a -> b"
+            "davlog: move a -> b"
         );
         assert_eq!(
             render_message(T, &[Change::with_target(Op::Copy, "a", "b")]),
-            "davgit: copy a -> b"
+            "davlog: copy a -> b"
         );
 
         let multi = render_message(
@@ -367,7 +367,7 @@ mod tests {
                 Change::with_target(Op::Move, "c", "d"),
             ],
         );
-        assert_eq!(multi, "davgit: 3 changes\n\nput a\ndelete b\nmove c -> d");
+        assert_eq!(multi, "davlog: 3 changes\n\nput a\ndelete b\nmove c -> d");
     }
 
     #[test]
@@ -377,7 +377,7 @@ mod tests {
             .collect();
         let msg = render_message(T, &changes);
         let lines: Vec<&str> = msg.lines().collect();
-        assert_eq!(lines[0], "davgit: 60 changes");
+        assert_eq!(lines[0], "davlog: 60 changes");
         assert_eq!(lines[1], "");
         assert_eq!(lines.len(), 2 + 50 + 1);
         assert_eq!(lines[2], "put f0");

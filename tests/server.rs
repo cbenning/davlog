@@ -5,11 +5,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::*;
-use davgit::committer::Committer;
-use davgit::config::Config;
-use davgit::repo::Repo;
-use davgit::server::Server;
-use davgit::status::Status;
+use davlog::committer::Committer;
+use davlog::config::Config;
+use davlog::repo::Repo;
+use davlog::server::Server;
+use davlog::status::Status;
 use reqwest::{Method, StatusCode};
 
 struct Running {
@@ -47,7 +47,7 @@ async fn start_with_password(extra: &str, password: &str) -> Running {
         dir.path().display()
     );
     let pw = password.to_string();
-    let env = move |k: &str| (k == "DAVGIT_PASSWORD").then(|| pw.clone());
+    let env = move |k: &str| (k == "DAVLOG_PASSWORD").then(|| pw.clone());
     let cfg = Config::parse(&toml, &env).unwrap();
     let status = Arc::new(Status::new());
     let sink = RecordingSink::new();
@@ -89,7 +89,7 @@ async fn unauthenticated_is_401_with_challenge() {
         .unwrap()
         .to_string();
     assert!(
-        challenge.starts_with("Basic realm=\"davgit\""),
+        challenge.starts_with("Basic realm=\"davlog\""),
         "{challenge}"
     );
 }
@@ -121,7 +121,7 @@ async fn correct_password_put_get_roundtrip_and_server_header() {
     assert!(r.headers()["server"]
         .to_str()
         .unwrap()
-        .starts_with("davgit/"));
+        .starts_with("davlog/"));
     let r = req(&c, "GET", &s.url("/a.md")).send().await.unwrap();
     assert_eq!(r.text().await.unwrap(), "hello");
 }

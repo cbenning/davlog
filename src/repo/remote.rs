@@ -203,7 +203,7 @@ impl Repo {
             };
         }
         // keep the remote-tracking ref in step, as `git push` does
-        let _ = repo.reference(&tracking_ref(cfg), local, true, "davgit: push");
+        let _ = repo.reference(&tracking_ref(cfg), local, true, "davlog: push");
         Ok(PushResult::Pushed)
     }
 

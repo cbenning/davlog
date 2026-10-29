@@ -5,8 +5,8 @@ use std::sync::Arc;
 use bytes::Bytes;
 use common::*;
 use dav_server::{memls::MemLs, DavHandler};
-use davgit::change::{Change, Op};
-use davgit::davfs::GitFs;
+use davlog::change::{Change, Op};
+use davlog::davfs::GitFs;
 use http::{HeaderMap, Request, StatusCode};
 use http_body_util::{BodyExt, Full, StreamBody};
 use hyper::body::Frame;
@@ -76,7 +76,7 @@ async fn put_stream(
 }
 
 fn tmp_entries(e: &Env) -> usize {
-    std::fs::read_dir(e.dir.path().join(".git/davgit-tmp"))
+    std::fs::read_dir(e.dir.path().join(".git/davlog-tmp"))
         .map(|d| d.count())
         .unwrap_or(0)
 }
@@ -422,7 +422,7 @@ async fn move_copy_and_mkcol_are_recorded() {
 #[tokio::test]
 async fn leftover_temp_files_are_removed_at_startup() {
     let (dir, _repo) = temp_repo("main");
-    let tmp = dir.path().join(".git/davgit-tmp");
+    let tmp = dir.path().join(".git/davlog-tmp");
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(tmp.join("stale"), "x").unwrap();
     let _fs = GitFs::new(dir.path().to_path_buf(), None, RecordingChanges::new());

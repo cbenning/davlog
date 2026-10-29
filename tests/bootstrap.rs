@@ -4,11 +4,11 @@ use std::io::Cursor;
 use std::path::Path;
 
 use common::*;
-use davgit::bootstrap::{
+use davlog::bootstrap::{
     apply, bootstrap_flag, inspect, resolve, Action, Choice, Reason, ResolveError, Situation,
     Terminal, EXIT_NEEDS_BOOTSTRAP_ANSWER,
 };
-use davgit::config::Config;
+use davlog::config::Config;
 
 fn cfg(repo_path: &Path, push_url: Option<&str>) -> Config {
     let push = push_url
@@ -19,7 +19,7 @@ fn cfg(repo_path: &Path, push_url: Option<&str>) -> Config {
         repo_path.display()
     );
     Config::parse(&toml, &|k: &str| {
-        (k == "DAVGIT_PASSWORD").then(|| "p".to_string())
+        (k == "DAVLOG_PASSWORD").then(|| "p".to_string())
     })
     .unwrap()
 }
@@ -178,7 +178,7 @@ fn no_tty_and_no_flag_asks_via_exit_code_and_names_flag_and_env() {
             assert_eq!(EXIT_NEEDS_BOOTSTRAP_ANSWER, 10);
             let text = e.to_string();
             assert!(text.contains("--bootstrap"), "{text}");
-            assert!(text.contains("DAVGIT_BOOTSTRAP"), "{text}");
+            assert!(text.contains("DAVLOG_BOOTSTRAP"), "{text}");
             assert!(text.contains("clone") && text.contains("init") && text.contains("abort"));
         }
         other => panic!("expected NeedsAnswer, got {other:?}"),
@@ -220,7 +220,7 @@ fn tty_prompt_reads_choice_from_input() {
 #[test]
 fn flag_beats_env_and_env_is_used_when_flag_absent() {
     let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    let env = |k: &str| (k == "DAVGIT_BOOTSTRAP").then(|| "abort".to_string());
+    let env = |k: &str| (k == "DAVLOG_BOOTSTRAP").then(|| "abort".to_string());
     let none = |_: &str| None;
     assert_eq!(bootstrap_flag(&args(&[]), &none).unwrap(), None);
     assert_eq!(

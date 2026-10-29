@@ -4,11 +4,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use common::*;
-use davgit::app::{self, AppError, Options};
-use davgit::bootstrap::Choice;
-use davgit::config::Config;
-use davgit::notify::EventKind;
-use davgit::repo::Repo;
+use davlog::app::{self, AppError, Options};
+use davlog::bootstrap::Choice;
+use davlog::config::Config;
+use davlog::notify::EventKind;
+use davlog::repo::Repo;
 use reqwest::Method;
 
 fn cfg(repo_path: &Path, extra: &str) -> Config {
@@ -17,7 +17,7 @@ fn cfg(repo_path: &Path, extra: &str) -> Config {
         repo_path.display()
     );
     Config::parse(&toml, &|k: &str| {
-        (k == "DAVGIT_PASSWORD").then(|| "pw".to_string())
+        (k == "DAVLOG_PASSWORD").then(|| "pw".to_string())
     })
     .unwrap()
 }

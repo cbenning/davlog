@@ -1,8 +1,8 @@
 mod common;
 
 use common::*;
-use davgit::config::PushConfig;
-use davgit::repo::{PushError, PushResult, Repo};
+use davlog::config::PushConfig;
+use davlog::repo::{PushError, PushResult, Repo};
 use git2::Repository;
 
 fn synced_pair() -> (

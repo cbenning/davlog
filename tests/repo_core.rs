@@ -1,8 +1,8 @@
 mod common;
 
 use common::*;
-use davgit::config::GitConfig;
-use davgit::repo::{ForeignState, Repo};
+use davlog::config::GitConfig;
+use davlog::repo::{ForeignState, Repo};
 
 fn s(v: &[&str]) -> Vec<String> {
     v.iter().map(|x| x.to_string()).collect()

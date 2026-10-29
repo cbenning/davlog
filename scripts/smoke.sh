@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Smoke-test a built server with real WebDAV clients. Missing tools are skipped.
-# Usage: scripts/smoke.sh [path-to-binary]   (default: target/debug/davgit)
+# Usage: scripts/smoke.sh [path-to-binary]   (default: target/debug/davlog)
 set -u
 
-BIN=${1:-target/debug/davgit}
+BIN=${1:-target/debug/davlog}
 PORT=${PORT:-18090}
 WORK=$(mktemp -d)
 trap 'kill "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; rm -rf "$WORK"' EXIT

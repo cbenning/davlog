@@ -125,7 +125,7 @@ mod tests {
             tls,
             username: "alerts@example.com".into(),
             password: Secret::new("secret".into()),
-            from: "davgit <alerts@example.com>".into(),
+            from: "davlog <alerts@example.com>".into(),
             to: vec!["me@example.com".into(), "you@example.com".into()],
         }
     }
@@ -152,7 +152,7 @@ mod tests {
         let recipients: Vec<String> = envelope.to().iter().map(|a| a.to_string()).collect();
         assert_eq!(recipients, vec!["me@example.com", "you@example.com"]);
         assert!(
-            raw.contains("Subject: [davgit] error: push paused"),
+            raw.contains("Subject: [davlog] error: push paused"),
             "{raw}"
         );
         assert!(raw.contains("alerts@example.com"), "{raw}");

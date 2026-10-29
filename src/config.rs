@@ -477,7 +477,7 @@ mod tests {
     use std::time::Duration;
 
     fn pw_env(key: &str) -> Option<String> {
-        (key == "DAVGIT_PASSWORD").then(|| "hunter2".to_string())
+        (key == "DAVLOG_PASSWORD").then(|| "hunter2".to_string())
     }
 
     fn no_env(_: &str) -> Option<String> {
@@ -640,7 +640,7 @@ smtp_host = "smtp.example.com"
 smtp_port = 587
 tls = "starttls"
 username = "alerts@example.com"
-from = "davgit <alerts@example.com>"
+from = "davlog <alerts@example.com>"
 to = ["me@example.com"]
 "#,
         )
@@ -649,7 +649,7 @@ to = ["me@example.com"]
         assert!(cfg.to_string().contains("smtp"), "{cfg}");
 
         let env = |k: &str| {
-            (k == "DAVGIT_SMTP_PASSWORD" || k == "DAVGIT_PASSWORD").then(|| "p".to_string())
+            (k == "DAVLOG_SMTP_PASSWORD" || k == "DAVLOG_PASSWORD").then(|| "p".to_string())
         };
         let cfg = Config::parse(
             &format!(
@@ -667,7 +667,7 @@ to = ["me@example.com"]
     fn example_config_parses() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config.example.toml");
         let env = |k: &str| {
-            (k == "DAVGIT_PASSWORD" || k == "DAVGIT_SMTP_PASSWORD").then(|| "p".to_string())
+            (k == "DAVLOG_PASSWORD" || k == "DAVLOG_SMTP_PASSWORD").then(|| "p".to_string())
         };
         Config::load(&path, &env).unwrap();
     }

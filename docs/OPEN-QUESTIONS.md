@@ -10,7 +10,7 @@
 - **Max file size:** supported and configurable.
 - **Resuming pushes after a conflict:** confirmed. The server retries on every push tick and sends a "recovered" notice when it works.
 - **Bootstrap against an existing remote:** the service asks the operator at start (confirmed: prompt on a TTY, otherwise log to the console and exit with a flag or env var to answer it; deployment is likely Docker).
-- **Name:** `davgit` for now. The owner likes it. Still keep it easy to change.
+- **Name:** `davlog` for now. The owner likes it. Still keep it easy to change.
 - **Original requirement list:** nothing further. "Backed by git" was the only item.
 
 These answers are folded into `DESIGN.md` and `CONCERNS.md`.

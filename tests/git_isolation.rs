@@ -16,14 +16,14 @@ fn host_gitconfig_is_ignored() {
     let before = git2::Config::open_default().unwrap();
     assert_eq!(before.get_string("user.name").unwrap(), "Host User");
 
-    davgit::repo::isolate_from_user_git_config();
+    davlog::repo::isolate_from_user_git_config();
 
     let after = git2::Config::open_default().unwrap();
     assert!(after.get_string("user.name").is_err());
     assert!(after.get_string("core.autocrlf").is_err());
 
     let dir = tempfile::tempdir().unwrap();
-    let repo = davgit::repo::Repo::open_or_init(dir.path(), "main").unwrap();
+    let repo = davlog::repo::Repo::open_or_init(dir.path(), "main").unwrap();
     let seen = repo.with_repository(|r| {
         r.config()
             .unwrap()

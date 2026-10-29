@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use davgit::repo::Repo;
+use davlog::repo::Repo;
 use git2::Signature;
 
 const TREE_FILES: usize = 5_000;
@@ -64,7 +64,7 @@ fn single_path_commits(
 }
 
 fn main() {
-    davgit::repo::isolate_from_user_git_config();
+    davlog::repo::isolate_from_user_git_config();
     std::fs::create_dir_all("target").unwrap();
     let tmp = tempfile::tempdir_in("target").unwrap();
     println!("tree of {TREE_FILES} files, {SAMPLES} samples per row, burst of {BURST}\n");
@@ -110,7 +110,7 @@ fn main() {
 
     // git2 does not expose GIT_OPT_ENABLE_FSYNC_GITDIR; libgit2 also honours core.fsync config.
     let (root, repo, sig) = fresh(tmp.path(), "fsync");
-    let mut cfg = davgit::config::GitConfig::default();
+    let mut cfg = davlog::config::GitConfig::default();
     cfg.config.insert("core.fsync".into(), "all".into());
     cfg.config
         .insert("core.fsyncobjectfiles".into(), "true".into());

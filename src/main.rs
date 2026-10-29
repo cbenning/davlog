@@ -2,10 +2,10 @@ use std::io::IsTerminal;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use davgit::app::{self, AppError, AppExit, Options};
-use davgit::bootstrap::{bootstrap_flag, Terminal};
-use davgit::brand;
-use davgit::config::Config;
+use davlog::app::{self, AppError, AppExit, Options};
+use davlog::bootstrap::{bootstrap_flag, Terminal};
+use davlog::brand;
+use davlog::config::Config;
 
 /// How long to wait before exiting with the "needs an answer" code, so a container
 /// restart loop does not flood the logs.

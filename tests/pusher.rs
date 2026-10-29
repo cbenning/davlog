@@ -3,13 +3,13 @@ mod common;
 use std::sync::Arc;
 
 use common::*;
-use davgit::change::{Change, Op};
-use davgit::committer::Committer;
-use davgit::config::{CommitConfig, PushConfig};
-use davgit::notify::EventKind;
-use davgit::pusher::{Pusher, TickOutcome};
-use davgit::repo::Repo;
-use davgit::status::Status;
+use davlog::change::{Change, Op};
+use davlog::committer::Committer;
+use davlog::config::{CommitConfig, PushConfig};
+use davlog::notify::EventKind;
+use davlog::pusher::{Pusher, TickOutcome};
+use davlog::repo::Repo;
+use davlog::status::Status;
 use git2::Repository;
 
 struct F {

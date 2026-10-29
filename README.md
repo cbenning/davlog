@@ -1,4 +1,4 @@
-# davgit
+# davlog
 
 **A WebDAV server where every save is a git commit.**
 
@@ -6,21 +6,21 @@ Point a notes app, rclone, or your file manager at a folder over WebDAV. Behind 
 
 ```
 $ git -C /srv/notes log --oneline
-3f2a9c1 davgit: update projects/pizza-night.md
-b81d0e4 davgit: move drafts/idea.md -> projects/idea.md
-9c07e55 davgit: delete scratch/old-list.md
-41de6a0 davgit: 3 changes
+3f2a9c1 davlog: update projects/pizza-night.md
+b81d0e4 davlog: move drafts/idea.md -> projects/idea.md
+9c07e55 davlog: delete scratch/old-list.md
+41de6a0 davlog: 3 changes
 ```
 
 Want an off-site copy? Give it a remote and it pushes on a timer. If something looks wrong it stops and emails you, instead of guessing.
 
-*(davgit is a working name and may change.)*
+*(davlog is a working name and may change.)*
 
 ## Why this exists
 
-Plain files are a good home for notes, and a git history is a good safety net for them. Most WebDAV servers don't version anything, and "put a file watcher on a git folder" gets crude fast: half-written files get committed, commit timing is a coin flip, and nobody tells you when a push fails. davgit is the small, careful version of that idea: one repo, one user, one binary.
+Plain files are a good home for notes, and a git history is a good safety net for them. Most WebDAV servers don't version anything, and "put a file watcher on a git folder" gets crude fast: half-written files get committed, commit timing is a coin flip, and nobody tells you when a push fails. davlog is the small, careful version of that idea: one repo, one user, one binary.
 
-WebDAV sync can also be error-prone. Clients disagree about who changed what, clocks drift, syncs get interrupted halfway, and sometimes a client decides your notes should be deleted or overwritten. Behind davgit that is annoying instead of permanent: every state the server accepted is a commit, so a bad sync can be found in `git log` and put back with `git revert` or `git checkout`. (The history lives in the server's repository, so it is only as safe as that disk. The optional push to a remote is there for exactly that.)
+WebDAV sync can also be error-prone. Clients disagree about who changed what, clocks drift, syncs get interrupted halfway, and sometimes a client decides your notes should be deleted or overwritten. Behind davlog that is annoying instead of permanent: every state the server accepted is a commit, so a bad sync can be found in `git log` and put back with `git revert` or `git checkout`. (The history lives in the server's repository, so it is only as safe as that disk. The optional push to a remote is there for exactly that.)
 
 It makes no assumptions about your client. It has been run against rclone, the litmus conformance suite and a strict notes-sync client (results at the bottom).
 
@@ -28,21 +28,21 @@ It makes no assumptions about your client. It has been run against rclone, the l
 
 ```sh
 cargo build --release
-cp config.example.toml davgit.toml          # set repo_path, listen, auth
+cp config.example.toml davlog.toml          # set repo_path, listen, auth
 printf '%s' 'choose-a-password' > password  # the file auth.password_file points at
-target/release/davgit --config davgit.toml
+target/release/davlog --config davlog.toml
 ```
 
-Point a WebDAV client at `http://127.0.0.1:8080/` and log in with the config's username and password. `curl http://127.0.0.1:8080/healthz` tells you how it's doing. `davgit --help` lists the options, and `config.example.toml` documents every setting.
+Point a WebDAV client at `http://127.0.0.1:8080/` and log in with the config's username and password. `curl http://127.0.0.1:8080/healthz` tells you how it's doing. `davlog --help` lists the options, and `config.example.toml` documents every setting.
 
-There's no `git init` step: if `repo_path` has no repository, davgit makes one.
+There's no `git init` step: if `repo_path` has no repository, davlog makes one.
 
 ### Docker
 
 ```sh
 mkdir -p data secrets && sudo chown 10001 data
 printf '%s' 'choose-a-password' > secrets/password
-cp config.docker.example.toml davgit.toml   # edit
+cp config.docker.example.toml davlog.toml   # edit
 docker compose up -d
 ```
 
@@ -58,7 +58,7 @@ Details are in `compose.yaml`. The image doesn't do TLS; put a reverse proxy (Ca
 
 ## When things go wrong
 
-| Situation | What davgit does |
+| Situation | What davlog does |
 |-----------|------------------|
 | The remote has commits it doesn't have | Fetches only to look, pauses pushing, emails you the ahead/behind counts and the commands to fix it. Keeps serving and committing. Resumes on its own once a push is a fast-forward again. |
 | You start a rebase or merge inside its repo | Stands down: skips commits and pushes, answers writes with `503` and `Retry-After`, keeps serving reads. Carries on when you finish or abort. |
@@ -78,25 +78,25 @@ Prefer tidier history? `debounce` waits for a quiet period, and `interval` commi
 
 ## First start
 
-If `repo_path` already holds a repository, davgit uses it as is. If it's empty (and the remote, if any, is empty too), davgit initialises it. Otherwise it needs to know what you want:
+If `repo_path` already holds a repository, davlog uses it as is. If it's empty (and the remote, if any, is empty too), davlog initialises it. Otherwise it needs to know what you want:
 
 - the directory has files but isn't a repository,
 - the remote's branch already has history, or
 - the local and remote histories are unrelated.
 
-On a terminal it asks. Without one (a container) it prints the choices to stderr, waits 5 seconds so the logs stay readable, and exits with **code 10**. Answer with `--bootstrap clone|init|abort` or `DAVGIT_BOOTSTRAP=clone|init|abort`: `clone` clones the remote, `init` creates a repository and keeps your local files, `abort` exits without touching anything. A container with a restart policy will loop on code 10 until you answer.
+On a terminal it asks. Without one (a container) it prints the choices to stderr, waits 5 seconds so the logs stay readable, and exits with **code 10**. Answer with `--bootstrap clone|init|abort` or `DAVLOG_BOOTSTRAP=clone|init|abort`: `clone` clones the remote, `init` creates a repository and keeps your local files, `abort` exits without touching anything. A container with a restart policy will loop on code 10 until you answer.
 
 Exit codes: 0 clean, 1 error, 2 bad usage or config, 10 needs a bootstrap answer.
 
 ## Pushing to a remote (optional)
 
-Add a `[push]` section and davgit pushes the configured branch every `interval`. Leave it out for a local-only server.
+Add a `[push]` section and davlog pushes the configured branch every `interval`. Leave it out for a local-only server.
 
-**Treat the remote as a write-only backup.** Anything else writing to that branch (another clone, a web edit, a merged pull request, a restore, a force-push) isn't supported. If it happens, davgit pauses pushing and tells you, as above. To sort it out, work in the server's repository with plain git: merge or rebase the remote's changes by hand, or, if the remote is the one that's wrong, `git push --force-with-lease`.
+**Treat the remote as a write-only backup.** Anything else writing to that branch (another clone, a web edit, a merged pull request, a restore, a force-push) isn't supported. If it happens, davlog pauses pushing and tells you, as above. To sort it out, work in the server's repository with plain git: merge or rebase the remote's changes by hand, or, if the remote is the one that's wrong, `git push --force-with-lease`.
 
 SSH remotes need `ssh_key` and a `known_hosts` file; unknown or changed host keys are refused. Only plain `known_hosts` entries are understood (hashed `|1|` entries are ignored). HTTPS remotes use `token_file`.
 
-Secrets can come from files or from `DAVGIT_PASSWORD`, `DAVGIT_SMTP_PASSWORD`, `DAVGIT_PUSH_TOKEN` and `DAVGIT_PUSH_SSH_PASSPHRASE`, which win over files.
+Secrets can come from files or from `DAVLOG_PASSWORD`, `DAVLOG_SMTP_PASSWORD`, `DAVLOG_PUSH_TOKEN` and `DAVLOG_PUSH_SSH_PASSPHRASE`, which win over files.
 
 ## Housekeeping
 
@@ -113,7 +113,7 @@ Secrets can come from files or from `DAVGIT_PASSWORD`, `DAVGIT_SMTP_PASSWORD`, `
 - **Empty directories** exist on disk, but git doesn't track them, so they vanish from history.
 - **Recursive `DELETE`** of a folder can produce several commits instead of one.
 - **`/healthz` is reserved.** A file named `healthz` at the repository root can't be reached over WebDAV.
-- **A client-written `.gitignore` can quietly stop versioning.** Ignored files are stored and served but not committed; davgit only logs a warning.
+- **A client-written `.gitignore` can quietly stop versioning.** Ignored files are stored and served but not committed; davlog only logs a warning.
 - **One writer per repository.** No clustering, no failover. Run one instance per repository.
 - **SSH push is unit-tested only.** There was no real SSH server in the test run, so try one push before you rely on it.
 
@@ -122,7 +122,7 @@ Secrets can come from files or from `DAVGIT_PASSWORD`, `DAVGIT_SMTP_PASSWORD`, `
 - `cargo test`: unit and integration tests, including a local bare repository as the remote for push, divergence and recovery.
 - `scripts/smoke.sh`: rclone syncs a tree up and down, compares the result, and checks the commits. It also runs litmus and cadaver if you have them.
 - **litmus 0.13:** `basic` 16/16, `copymove` 13/13, `http` 4/4, `locks` 38/41, `props` 11/14. Every failure is a `PROPPATCH` (dead properties) answered with 501.
-- **A strict notes-sync client (HelixNotes' CLI):** two vaults syncing through davgit, including edits and deletes in both directions, with every change committed. It only works with strong ETags, and it caught a bug in the WebDAV library davgit is built on (PROPFIND `getetag` came back without quotes, so the client saw weak ETags and refused to delete). davgit now quotes them. Nothing here depends on HelixNotes.
+- **A strict notes-sync client (HelixNotes' CLI):** two vaults syncing through davlog, including edits and deletes in both directions, with every change committed. It only works with strong ETags, and it caught a bug in the WebDAV library davlog is built on (PROPFIND `getetag` came back without quotes, so the client saw weak ETags and refused to delete). davlog now quotes them. Nothing here depends on HelixNotes.
 
 ## Under the hood
 
@@ -137,4 +137,4 @@ Rust, `tokio` and `hyper`, the [`dav-server`](https://crates.io/crates/dav-serve
 | `docs/DESIGN.md` | The approved design, plus an "As built" section. |
 | `docs/CONCERNS.md` | Hard parts and edge cases, with the handling chosen. |
 | `docs/OPEN-QUESTIONS.md` | Questions asked and answered. |
-| `docs/superpowers/plans/2026-10-28-davgit-v1.md` | The implementation plan. |
+| `docs/superpowers/plans/2026-10-28-davlog-v1.md` | The implementation plan. |

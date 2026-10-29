@@ -2,12 +2,12 @@
 
 use std::path::Path;
 
-use davgit::repo::Repo;
+use davlog::repo::Repo;
 use git2::Signature;
 use tempfile::TempDir;
 
 pub fn setup() {
-    davgit::repo::isolate_from_user_git_config();
+    davlog::repo::isolate_from_user_git_config();
 }
 
 pub fn temp_repo(branch: &str) -> (TempDir, Repo) {
@@ -69,7 +69,7 @@ pub fn parent_count_of_head(repo: &Repo) -> usize {
 
 use std::sync::{Arc, Mutex};
 
-use davgit::notify::{AlertSink, Event};
+use davlog::notify::{AlertSink, Event};
 
 #[derive(Default)]
 pub struct RecordingSink {
@@ -81,7 +81,7 @@ impl RecordingSink {
         Arc::new(Self::default())
     }
 
-    pub fn kinds(&self) -> Vec<davgit::notify::EventKind> {
+    pub fn kinds(&self) -> Vec<davlog::notify::EventKind> {
         self.events
             .lock()
             .unwrap()
@@ -132,7 +132,7 @@ pub fn set_objects_readonly(root: &Path, readonly: bool) {
     .unwrap();
 }
 
-use davgit::change::{Change, ChangeSink};
+use davlog::change::{Change, ChangeSink};
 
 #[derive(Default)]
 pub struct RecordingChanges {
@@ -159,7 +159,7 @@ impl ChangeSink for RecordingChanges {
 
 use std::time::Duration;
 
-use davgit::config::{PushAuth, PushConfig};
+use davlog::config::{PushAuth, PushConfig};
 use git2::{Repository, RepositoryInitOptions};
 
 pub fn bare_remote() -> (tempfile::TempDir, String) {
@@ -227,7 +227,7 @@ pub fn other_writer_pushes(url: &str, file: &str, body: &str, msg: &str) -> git2
 use std::future::Future;
 use std::pin::Pin;
 
-use davgit::notify::Notifier;
+use davlog::notify::Notifier;
 
 #[derive(Default)]
 pub struct RecordingNotifier {
@@ -239,7 +239,7 @@ impl RecordingNotifier {
         Arc::new(Self::default())
     }
 
-    pub fn kinds(&self) -> Vec<davgit::notify::EventKind> {
+    pub fn kinds(&self) -> Vec<davlog::notify::EventKind> {
         self.events
             .lock()
             .unwrap()
