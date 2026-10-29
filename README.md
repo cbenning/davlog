@@ -64,11 +64,50 @@ It doesn't assume anything about your client.
 
 ## Quick start
 
-You need Docker with Compose. This sets up davlog behind [Caddy](https://caddyserver.com/), which gets and renews a Let's Encrypt certificate for you.
+You need Docker with Compose.
+
+### Try it on your machine
 
 ```sh
 git clone https://github.com/cbenning/davlog.git && cd davlog
 
+mkdir -p data
+printf 'DAVLOG_UID=%s\nDAVLOG_GID=%s\n' "$(id -u)" "$(id -g)" > .env   # so ./data is yours
+docker compose up -d --build
+```
+
+davlog is now at `http://localhost:8080/`. Log in with username `notes` and password `notes` (set `DAVLOG_PASSWORD=something-else` to change it). This setup is plain HTTP on localhost only, so use it for trying things out, not for a server other people can reach.
+
+Your files are in `./data`, which is the git repository, and you own it, so plain git works on it:
+
+```sh
+git -C data log --oneline
+```
+
+**Connect a client.** Any WebDAV client works. With rclone:
+
+```sh
+rclone ls :webdav: --webdav-url=http://localhost:8080 --webdav-user=notes \
+  --webdav-pass="$(rclone obscure notes)" --webdav-vendor=other
+```
+
+With the HelixNotes CLI (or the app's WebDAV settings, with the same URL, username and password):
+
+```sh
+export HELIXNOTES_WEBDAV_URL=http://localhost:8080/
+export HELIXNOTES_WEBDAV_USERNAME=notes
+export HELIXNOTES_WEBDAV_PASSWORD_FILE=~/.config/helixnotes/password   # a file containing: notes
+export HELIXNOTES_VAULT=~/notes
+helixnotes-cli sync
+```
+
+Sync a vault, change or delete a note, sync again, and look at `git -C data log` to see each change as a commit. Stop it with `docker compose down`; your files stay in `./data`.
+
+### Run it for real, with HTTPS
+
+This sets up davlog behind [Caddy](https://caddyserver.com/), which gets and renews a Let's Encrypt certificate for you.
+
+```sh
 mkdir -p data secrets
 sudo chown 10001 data                          # davlog runs as uid 10001 inside the container
 printf '%s' 'a-long-password' > secrets/password
@@ -87,9 +126,9 @@ sudo -u '#10001' git -C data log --oneline
 
 A few notes:
 
-- Without `DAVLOG_DOMAIN` it serves `https://localhost` with a certificate from Caddy's own local CA. That's fine for trying it out. If ports 80 and 443 aren't available to you, set `HTTP_PORT` and `HTTPS_PORT`.
+- Without `DAVLOG_DOMAIN` it serves `https://localhost` with a certificate from Caddy's own local CA. That's fine for trying out the HTTPS setup. If ports 80 and 443 aren't available to you, set `HTTP_PORT` and `HTTPS_PORT`.
 - Only Caddy publishes ports. davlog itself is reachable only from inside the compose network, runs with a read-only filesystem and no extra Linux capabilities, and the `Caddyfile` hides `/healthz` from the outside.
-- `compose.yaml` is the same container without Caddy, for localhost or a network you trust. Don't expose it directly: davlog speaks plain HTTP with Basic auth, so the password would cross the network unencrypted. Any reverse proxy works (nginx, Traefik, a cloud load balancer). `Caddyfile` is just the shortest example.
+- Don't expose davlog directly, as `compose.yaml` does on localhost. It speaks plain HTTP with Basic auth, so the password would cross the network unencrypted. Any reverse proxy works (nginx, Traefik, a cloud load balancer). `Caddyfile` is just the shortest example.
 - To use a password hash instead of a password file, make one with `printf '%s' 'a-long-password' | docker compose -f compose.https.yaml run --rm -T davlog hash-password` and put it in `davlog.toml` as `password_hash`.
 - `config.example.toml` documents every setting.
 

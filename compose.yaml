@@ -1,32 +1,38 @@
-# Example deployment without TLS, for localhost or a trusted network. For HTTPS with an
-# automatic certificate use compose.https.yaml instead.
+# The quickest way to try davlog on your own machine: plain HTTP on localhost, no setup
+# files. For a real deployment with HTTPS use compose.https.yaml.
 #
-# One-time setup:
-#   mkdir -p data secrets && sudo chown 10001 data
-#   printf '%s' 'choose-a-password' > secrets/password
-#   cp config.docker.example.toml davlog.toml   # then edit
+#   mkdir -p data
+#   printf 'DAVLOG_UID=%s\nDAVLOG_GID=%s\n' "$(id -u)" "$(id -g)" > .env
+#   docker compose up -d --build
 #
-# On first start with an empty ./data and no remote history the repository is created
-# for you. If the server has to ask a bootstrap question it exits with code 10 and the
-# restart policy below will loop on it until you answer, for example with
-#   DAVLOG_BOOTSTRAP=init    (or clone, or abort)
-# or by running once interactively: docker compose run --rm davlog
+# Then point a WebDAV client at http://localhost:8080/ with username "notes" and password
+# "notes" (change it: DAVLOG_PASSWORD=something-else docker compose up -d).
+#
+# Your files are in ./data, which is the git repository. You own it, so plain git works:
+#   git -C data log --oneline
+#
+# This file is for localhost only. Basic auth over plain HTTP is not safe on a network
+# you don't control.
 services:
   davlog:
     build: .
     image: davlog:latest
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${DAVLOG_PORT:-8080}:8080"
+    # Run as you (the .env file above), so ./data belongs to you and git works on it
+    # without sudo.
+    user: "${DAVLOG_UID:-1000}:${DAVLOG_GID:-1000}"
     volumes:
       - ./data:/data
-      - ./davlog.toml:/etc/davlog/davlog.toml:ro
-    secrets:
-      - davlog_password
-    # environment:
-    #   DAVLOG_BOOTSTRAP: init
-    #   RUST_LOG: info
-
-secrets:
-  davlog_password:
-    file: ./secrets/password
+      # listen address, data directory and username "notes"; the password comes from
+      # DAVLOG_PASSWORD below, which takes precedence over the password file named in it
+      - ./config.docker.example.toml:/etc/davlog/davlog.toml:ro
+    environment:
+      DAVLOG_PASSWORD: ${DAVLOG_PASSWORD:-notes}
+      DAVLOG_BOOTSTRAP: init
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
