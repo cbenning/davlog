@@ -1,8 +1,31 @@
-# davlog
+<h1 align="center">davlog</h1>
 
-**A WebDAV server where every save is a git commit.**
+<p align="center"><strong>A WebDAV server where every save is a git commit.</strong></p>
+
+<p align="center">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-dea584?logo=rust&logoColor=white">
+  <img alt="Backed by git" src="https://img.shields.io/badge/backed%20by-git-F05032?logo=git&logoColor=white">
+  <img alt="WebDAV" src="https://img.shields.io/badge/WebDAV-class%201%20%26%202-4c8bf5">
+  <img alt="Docker ready" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
+  <img alt="litmus basic, copymove and http suites: 100%" src="https://img.shields.io/badge/litmus-basic%20%C2%B7%20copymove%20%C2%B7%20http%20100%25-brightgreen">
+  <img alt="Status: early days" src="https://img.shields.io/badge/status-early%20days-orange">
+</p>
+
+<p align="center">
+  <a href="#try-it">Try it</a> &middot;
+  <a href="#what-its-picky-about">What it's picky about</a> &middot;
+  <a href="#when-things-go-wrong">When things go wrong</a> &middot;
+  <a href="#pushing-to-a-remote-optional">Backups</a> &middot;
+  <a href="#sharp-edges">Sharp edges</a>
+</p>
+
+---
 
 Point a notes app, rclone, or your file manager at a folder over WebDAV. Behind it sits an ordinary git repository. Every upload, delete and move becomes a commit, so "what did this note say last Tuesday?" is a `git log` away, and "undo that" is a `git revert`.
+
+```
+ your apps  ──WebDAV──▶  davlog  ──commit──▶  git repo  ──push (optional)──▶  backup remote
+```
 
 ```
 $ git -C /srv/notes log --oneline
