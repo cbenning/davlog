@@ -125,6 +125,7 @@ async fn divergence_pauses_alerts_once_and_leaves_repo_untouched() {
     assert!(event.details.contains("their change"), "{}", event.details);
     assert!(event.details.contains("not supported"), "{}", event.details);
     let workdir = f.repo.workdir().display().to_string();
+    let workdir = workdir.trim_end_matches('/').to_string();
     // the exact wording depends on whether the test runs in a container; src/pusher.rs
     // unit-tests both forms
     assert!(

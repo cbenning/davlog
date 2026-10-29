@@ -219,7 +219,9 @@ fn divergence_details(
     container: bool,
     uid: u32,
 ) -> String {
-    let dir = workdir.display();
+    // libgit2 reports the working tree with a trailing slash
+    let dir = workdir.to_string_lossy();
+    let dir = dir.trim_end_matches('/');
     let (remote, branch) = (&cfg.remote, &cfg.branch);
     let facts = match diagnosis {
         Ok(d) => format!(
@@ -301,6 +303,29 @@ mod tests {
             "{text}"
         );
         assert!(!text.contains("sudo"), "{text}");
+    }
+
+    #[test]
+    fn a_trailing_slash_on_the_path_is_not_shown() {
+        // libgit2 reports the working tree as "/data/"
+        let text = divergence_details(
+            &push_cfg(),
+            std::path::Path::new("/srv/notes/"),
+            Ok(divergence()),
+            false,
+            1000,
+        );
+        assert!(text.contains("git -C /srv/notes fetch origin"), "{text}");
+        assert!(!text.contains("/srv/notes/"), "{text}");
+        let text = divergence_details(
+            &push_cfg(),
+            std::path::Path::new("/data/"),
+            Ok(divergence()),
+            true,
+            1000,
+        );
+        assert!(text.contains("sees at /data."), "{text}");
+        assert!(!text.contains("/data/"), "{text}");
     }
 
     #[test]
