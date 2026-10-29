@@ -26,12 +26,71 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use crate::brand::TMP_DIR_NAME;
 use crate::change::{Change, ChangeSink, Op};
 
+#[cfg(test)]
+mod tests {
+    use super::is_dotgit_alias;
+
+    #[test]
+    fn aliases_are_recognised_and_ordinary_names_are_not() {
+        for name in [
+            ".git",
+            ".GIT",
+            ".Git",
+            ".git.",
+            ".git ",
+            ".git. .",
+            "GIT~1",
+            "git~1",
+            ".g\u{200c}it",
+            ".git::$INDEX_ALLOCATION",
+            ".GiT\u{feff}",
+        ] {
+            assert!(is_dotgit_alias(name), "{name:?}");
+        }
+        for name in [
+            ".gitignore",
+            ".gitattributes",
+            ".github",
+            ".git-notes.md",
+            "gitfoo",
+            "git",
+            "my.git",
+            ".gi",
+            "git~2",
+            "..git",
+            "",
+        ] {
+            assert!(!is_dotgit_alias(name), "{name:?}");
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct GitFs {
     root: Arc<PathBuf>,
     tmp_dir: Arc<PathBuf>,
     max_file_size: Option<u64>,
     sink: Arc<dyn ChangeSink>,
+}
+
+/// True for names that git, or the filesystem of someone who clones this repository,
+/// treats as the `.git` directory: other letter cases (`.GIT`), trailing dots and
+/// spaces (`.git.`), the Windows short name (`GIT~1`), NTFS stream suffixes
+/// (`.git::$INDEX_ALLOCATION`) and macOS-ignored invisible characters (`.g<ZWNJ>it`).
+pub fn is_dotgit_alias(name: &str) -> bool {
+    let base = name.split(':').next().unwrap_or(name);
+    let visible: String = base
+        .chars()
+        .filter(|c| {
+            !matches!(
+                *c,
+                '\u{200c}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{206a}'..='\u{206f}' | '\u{feff}'
+            )
+        })
+        .collect();
+    let lower = visible.to_lowercase();
+    let trimmed = lower.trim_end_matches(['.', ' ']);
+    trimmed == ".git" || trimmed == "git~1"
 }
 
 impl GitFs {
@@ -67,7 +126,7 @@ impl GitFs {
             match component {
                 "" | "." => {}
                 ".." => return Err(FsError::Forbidden),
-                ".git" => return Err(denied),
+                c if is_dotgit_alias(c) => return Err(denied),
                 c => parts.push(c),
             }
         }
@@ -283,7 +342,7 @@ impl DavFileSystem for GitFs {
             let mut entries: Vec<FsResult<Box<dyn DavDirEntry>>> = Vec::new();
             while let Some(entry) = reader.next_entry().await.map_err(|e| io_err(&e))? {
                 let name = entry.file_name();
-                if name == ".git" {
+                if is_dotgit_alias(&name.to_string_lossy()) {
                     continue;
                 }
                 let Ok(file_type) = entry.file_type().await else {

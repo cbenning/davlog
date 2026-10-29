@@ -716,3 +716,74 @@ async fn writes_get_507_when_the_repo_is_over_its_size_cap() {
         .unwrap();
     assert!(del.status().is_success(), "{}", del.status());
 }
+
+// ---- response headers for stored content ----
+
+async fn header_of(s: &Running, path: &str, name: &str) -> Option<String> {
+    let r = req(&client(), "GET", &s.url(path)).send().await.unwrap();
+    assert!(r.status().is_success(), "{path}: {}", r.status());
+    r.headers()
+        .get(name)
+        .map(|v| v.to_str().unwrap().to_string())
+}
+
+#[tokio::test]
+async fn stored_files_are_served_with_nosniff() {
+    let s = start("").await;
+    for (path, body) in [
+        ("/a.md", "# hi"),
+        ("/b.png", "not really a png"),
+        ("/c.html", "<b>x</b>"),
+    ] {
+        req(&client(), "PUT", &s.url(path))
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            header_of(&s, path, "x-content-type-options")
+                .await
+                .as_deref(),
+            Some("nosniff"),
+            "{path}"
+        );
+    }
+    let unauth = client().get(s.url("/a.md")).send().await.unwrap();
+    assert_eq!(unauth.headers()["x-content-type-options"], "nosniff");
+}
+
+#[tokio::test]
+async fn active_content_types_get_a_sandbox_csp() {
+    let s = start("").await;
+    for path in ["/page.html", "/page.xhtml", "/image.svg", "/data.xml"] {
+        req(&client(), "PUT", &s.url(path))
+            .body("<x/>")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            header_of(&s, path, "content-security-policy")
+                .await
+                .as_deref(),
+            Some("sandbox"),
+            "{path} must not run script on the server's origin"
+        );
+    }
+}
+
+#[tokio::test]
+async fn ordinary_content_gets_no_csp_so_pdfs_and_images_keep_working_in_a_browser() {
+    let s = start("").await;
+    for path in ["/note.md", "/photo.png", "/paper.pdf", "/data.json"] {
+        req(&client(), "PUT", &s.url(path))
+            .body("x")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            header_of(&s, path, "content-security-policy").await,
+            None,
+            "{path}"
+        );
+    }
+}

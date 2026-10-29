@@ -331,10 +331,42 @@ async fn quote_getetags(res: Response<Body>, limit: usize) -> Response<Body> {
     Response::from_parts(parts, Body::from(bytes::Bytes::from(fixed)))
 }
 
+/// Content types a browser can run script from. Served from our origin, a stored page
+/// could otherwise read other files with the credentials the browser has cached.
+fn is_active_content(content_type: &str) -> bool {
+    let essence = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    matches!(
+        essence.as_str(),
+        "text/html" | "application/xhtml+xml" | "image/svg+xml" | "text/xml" | "application/xml"
+    )
+}
+
 async fn handle(ctx: Arc<Ctx>, peer: SocketAddr, req: Request<Incoming>) -> Response<Body> {
     let mut res = route(&ctx, peer, req).await;
-    res.headers_mut()
-        .insert(header::SERVER, HeaderValue::from_static(brand::USER_AGENT));
+    let headers = res.headers_mut();
+    headers.insert(header::SERVER, HeaderValue::from_static(brand::USER_AGENT));
+    // Never let a browser guess a more dangerous type than the one we declared.
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    let active = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(is_active_content);
+    if active {
+        // Pages stay viewable but get a unique origin and no scripts. Not applied to PDFs
+        // or images, where `sandbox` would switch off the browser's viewers.
+        headers.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("sandbox"),
+        );
+    }
     res
 }
 

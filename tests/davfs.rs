@@ -442,3 +442,72 @@ async fn etag_is_stable_across_reads_and_changes_on_write() {
     let (_, h3, _) = send(&e, "GET", "/a.md", b"", &[]).await;
     assert_ne!(etag(&h1), etag(&h3));
 }
+
+#[tokio::test]
+async fn dot_git_lookalikes_are_hidden_and_protected_too() {
+    let e = env(None);
+    // names that act as `.git` when the repo is cloned onto Windows or macOS
+    let aliases = [
+        "/.GIT",
+        "/.Git/config",
+        "/.git./config",
+        "/.git%20/config",
+        "/GIT~1/config",
+        "/git~1",
+        "/.g%E2%80%8Cit/config",
+        "/.git::$INDEX_ALLOCATION",
+        "/sub/.GIT/config",
+    ];
+    for uri in aliases {
+        for method in ["GET", "PROPFIND"] {
+            let (status, _, _) = send(&e, method, uri, b"", &[("depth", "0")]).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}");
+        }
+        for (method, body) in [("PUT", &b"x"[..]), ("MKCOL", b"")] {
+            let (status, _, _) = send(&e, method, uri, body, &[]).await;
+            assert!(
+                status == StatusCode::FORBIDDEN || status == StatusCode::NOT_FOUND,
+                "{method} {uri} gave {status}"
+            );
+        }
+        send(&e, "PUT", "/a.md", b"data", &[]).await;
+        let (status, _, _) = send(
+            &e,
+            "MOVE",
+            "/a.md",
+            b"",
+            &[("destination", &format!("http://localhost{uri}"))],
+        )
+        .await;
+        assert!(status.is_client_error(), "MOVE to {uri} gave {status}");
+    }
+    let names: Vec<String> = std::fs::read_dir(e.dir.path())
+        .unwrap()
+        .flatten()
+        .map(|d| d.file_name().to_string_lossy().to_string())
+        .collect();
+    let mut names = names;
+    names.sort();
+    assert_eq!(
+        names,
+        vec![".git", "a.md"],
+        "nothing else was created: {names:?}"
+    );
+}
+
+#[tokio::test]
+async fn ordinary_dot_git_prefixed_names_still_work() {
+    let e = env(None);
+    for (method, uri) in [
+        ("PUT", "/.gitignore"),
+        ("PUT", "/.gitattributes"),
+        ("MKCOL", "/.github/"),
+        ("PUT", "/.github/ci.yml"),
+        ("PUT", "/.git-notes.md"),
+        ("PUT", "/gitfoo"),
+    ] {
+        let body: &[u8] = if method == "PUT" { b"x" } else { b"" };
+        let (status, _, _) = send(&e, method, uri, body, &[]).await;
+        assert!(status.is_success(), "{method} {uri} gave {status}");
+    }
+}
