@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod bootstrap;
 pub mod brand;
 pub mod change;
 pub mod committer;

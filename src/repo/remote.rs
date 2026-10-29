@@ -109,6 +109,23 @@ fn tracking_ref(cfg: &PushConfig) -> String {
     format!("refs/remotes/{}/{}", cfg.remote, cfg.branch)
 }
 
+/// Does the configured remote have the configured branch? Asks the remote directly,
+/// so it works before any local repository exists.
+pub fn remote_has_branch(cfg: &PushConfig) -> Result<bool, PushError> {
+    let url = cfg
+        .url
+        .as_deref()
+        .ok_or_else(|| PushError::Other("no remote url is configured".to_string()))?;
+    let observed = Observed::default();
+    let mut remote = git2::Remote::create_detached(url).map_err(|e| PushError::from_git2(&e))?;
+    let mut conn = remote
+        .connect_auth(Direction::Fetch, Some(callbacks(cfg, &observed)), None)
+        .map_err(|e| observed.classify(&e))?;
+    let wanted = local_ref(cfg);
+    let heads = conn.remote().list().map_err(|e| PushError::from_git2(&e))?;
+    Ok(heads.iter().any(|h| h.name() == wanted))
+}
+
 impl Repo {
     /// Add the remote if it is missing. Errors if it exists with a different URL.
     pub fn ensure_remote(&self, name: &str, url: &str) -> Result<()> {

@@ -12,7 +12,7 @@ mod remote;
 use anyhow::{Context, Result};
 
 use git2::{ConfigLevel, IndexAddOption, Oid, Repository, RepositoryInitOptions, Signature};
-pub use remote::{Divergence, PushError, PushResult};
+pub use remote::{remote_has_branch, Divergence, PushError, PushResult};
 use tracing::warn;
 
 use crate::config::GitConfig;
