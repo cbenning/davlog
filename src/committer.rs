@@ -309,7 +309,7 @@ pub fn render_message(template: &str, changes: &[Change]) -> String {
     };
     let mut message = template.replace("{summary}", &summary);
     if changes.len() > 1 {
-        message.push_str("\n");
+        message.push('\n');
         for change in changes.iter().take(BODY_LINE_LIMIT) {
             message.push('\n');
             message.push_str(&describe(change));
