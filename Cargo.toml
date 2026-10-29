@@ -1,0 +1,41 @@
+[package]
+name = "davgit"
+version = "0.1.0"
+edition = "2021"
+description = "WebDAV server backed by a git working tree"
+
+[lib]
+name = "davgit"
+path = "src/lib.rs"
+
+[[bin]]
+name = "davgit"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+argon2 = "0.6"
+base64 = "0.22"
+bytesize = { version = "2", features = ["serde"] }
+dav-server = "0.11"
+git2 = { version = "0.21", default-features = false, features = ["https", "ssh"] }
+http = "1"
+http-body-util = "0.1"
+humantime-serde = "1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls", "rustls-tls", "ring"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false }
+tempfile = "3"

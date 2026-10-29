@@ -1,4 +1,4 @@
-# Design (DRAFT, not approved)
+# Design (approved 2026-10-28)
 
 Legend: **Decided** = the owner confirmed it. **Guess** = the previous agent's proposal, open to change.
 

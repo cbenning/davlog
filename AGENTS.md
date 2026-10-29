@@ -2,10 +2,10 @@
 
 ## State of the project
 
-- Created 2026-10-28 out of a brainstorming conversation. No code, no `Cargo.toml`, no git repo yet.
-- `docs/DESIGN.md` is a **draft**. The owner confirmed the decisions marked "Decided" in it, including their answers of 2026-10-28 (see `docs/OPEN-QUESTIONS.md`). Everything marked "Guess" is the previous agent's proposal and has not been confirmed.
+- Created 2026-10-28 out of a brainstorming conversation. Design approved 2026-10-28; implementation follows `docs/superpowers/plans/2026-10-28-davgit-v1.md` on branch `feat/v1`.
+- `docs/DESIGN.md` is **approved**. The owner confirmed the decisions marked "Decided" in it, including their answers of 2026-10-28 (see `docs/OPEN-QUESTIONS.md`). Everything marked "Guess" is the previous agent's proposal and has not been confirmed.
 - A second design pass on 2026-10-28 added: optional push, the `git2` over `gix` decision, and a simpler push policy. The remote is a write-only backup, and a divergent remote is unsupported: the server fetches for diagnosis, pauses pushing, alerts, and never rebases or merges. The conflict-branch idea, automatic rebase and hot failover are parked under "Possible later" in `docs/DESIGN.md`. Scaling is out of scope. Default commit mode is `per_request` unless the benchmark shows it is slow. Mutating requests return 503 while a human has a rebase or merge in progress. No questions block the owner's review.
-- The brainstorming process was not finished: the owner has not reviewed the written design, and the independent "builder check" review of the document has not been run.
+- The owner approved the written design; the independent "builder check" review of the document was waived by that approval.
 
 ## What to do next
 
