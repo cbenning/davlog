@@ -107,6 +107,21 @@ pub struct CommitConfig {
     pub wait_for_commit: bool,
 }
 
+impl Default for CommitConfig {
+    fn default() -> Self {
+        CommitConfig {
+            mode: CommitMode::PerRequest,
+            debounce: Duration::from_secs(5),
+            max_wait: Duration::from_secs(60),
+            interval: Duration::from_secs(300),
+            author_name: brand::DEFAULT_AUTHOR_NAME.to_string(),
+            author_email: brand::DEFAULT_AUTHOR_EMAIL.to_string(),
+            message_template: brand::DEFAULT_MESSAGE_TEMPLATE.to_string(),
+            wait_for_commit: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum PushAuth {
     None,
@@ -323,29 +338,26 @@ impl Config {
                 }
                 (Some(path), None) => PasswordCheck::Plain(file_secret(path)?),
                 (None, Some(hash)) => PasswordCheck::Argon2(hash.clone()),
-                (None, None) => return invalid(format!(
+                (None, None) => {
+                    return invalid(format!(
                     "no auth password: set auth.password_file, auth.password_hash or {}_PASSWORD",
                     brand::ENV_PREFIX
-                )),
+                ))
+                }
             }
         };
 
         let c = raw.commit;
+        let d = CommitConfig::default();
         let commit = CommitConfig {
-            mode: c.mode.unwrap_or(CommitMode::PerRequest),
-            debounce: c.debounce.unwrap_or(Duration::from_secs(5)),
-            max_wait: c.max_wait.unwrap_or(Duration::from_secs(60)),
-            interval: c.interval.unwrap_or(Duration::from_secs(300)),
-            author_name: c
-                .author_name
-                .unwrap_or_else(|| brand::DEFAULT_AUTHOR_NAME.to_string()),
-            author_email: c
-                .author_email
-                .unwrap_or_else(|| brand::DEFAULT_AUTHOR_EMAIL.to_string()),
-            message_template: c
-                .message_template
-                .unwrap_or_else(|| brand::DEFAULT_MESSAGE_TEMPLATE.to_string()),
-            wait_for_commit: c.wait_for_commit.unwrap_or(true),
+            mode: c.mode.unwrap_or(d.mode),
+            debounce: c.debounce.unwrap_or(d.debounce),
+            max_wait: c.max_wait.unwrap_or(d.max_wait),
+            interval: c.interval.unwrap_or(d.interval),
+            author_name: c.author_name.unwrap_or(d.author_name),
+            author_email: c.author_email.unwrap_or(d.author_email),
+            message_template: c.message_template.unwrap_or(d.message_template),
+            wait_for_commit: c.wait_for_commit.unwrap_or(d.wait_for_commit),
         };
 
         let push = match raw.push {

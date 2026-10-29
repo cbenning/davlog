@@ -66,3 +66,68 @@ pub fn head_blob(repo: &Repo, path: &str) -> Vec<u8> {
 pub fn parent_count_of_head(repo: &Repo) -> usize {
     repo.with_repository(|r| r.head().unwrap().peel_to_commit().unwrap().parent_count())
 }
+
+use std::sync::{Arc, Mutex};
+
+use davgit::notify::{AlertSink, Event};
+
+#[derive(Default)]
+pub struct RecordingSink {
+    pub events: Mutex<Vec<Event>>,
+}
+
+impl RecordingSink {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    pub fn kinds(&self) -> Vec<davgit::notify::EventKind> {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.kind.clone())
+            .collect()
+    }
+
+    pub fn count(&self) -> usize {
+        self.events.lock().unwrap().len()
+    }
+}
+
+impl AlertSink for RecordingSink {
+    fn alert(&self, event: Event) {
+        self.events.lock().unwrap().push(event);
+    }
+}
+
+/// Poll `cond` until true. Uses real sleeps so blocking git work can finish while
+/// tokio's clock is paused.
+pub async fn wait_until(mut cond: impl FnMut() -> bool) {
+    for _ in 0..5000 {
+        if cond() {
+            return;
+        }
+        tokio::task::yield_now().await;
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    panic!("condition not met in time");
+}
+
+/// Give the actor a chance to run without waiting for any condition.
+pub async fn settle() {
+    for _ in 0..30 {
+        tokio::task::yield_now().await;
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+pub fn set_objects_readonly(root: &Path, readonly: bool) {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = if readonly { 0o555 } else { 0o755 };
+    std::fs::set_permissions(
+        root.join(".git/objects"),
+        std::fs::Permissions::from_mode(mode),
+    )
+    .unwrap();
+}

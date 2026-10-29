@@ -32,13 +32,22 @@ fn fresh(base: &Path, name: &str) -> (std::path::PathBuf, Repo, Signature<'stati
     let repo = Repo::open_or_init(&root, "main").unwrap();
     let sig = Signature::now("bench", "bench@localhost").unwrap();
     for i in 0..TREE_FILES {
-        write(&root, &format!("d{:02}/f{i:04}.md", i % 50), &format!("note {i}\n"));
+        write(
+            &root,
+            &format!("d{:02}/f{i:04}.md", i % 50),
+            &format!("note {i}\n"),
+        );
     }
     repo.commit_all("seed", &sig).unwrap();
     (root, repo, sig)
 }
 
-fn single_path_commits(root: &Path, repo: &Repo, sig: &Signature<'_>, add_all: bool) -> Vec<Duration> {
+fn single_path_commits(
+    root: &Path,
+    repo: &Repo,
+    sig: &Signature<'_>,
+    add_all: bool,
+) -> Vec<Duration> {
     (0..SAMPLES)
         .map(|n| {
             let rel = format!("d{:02}/f{:04}.md", n % 50, n);
@@ -61,10 +70,16 @@ fn main() {
     println!("tree of {TREE_FILES} files, {SAMPLES} samples per row, burst of {BURST}\n");
 
     let (root, repo, sig) = fresh(tmp.path(), "paths");
-    report("single-path commit (no fsync)", single_path_commits(&root, &repo, &sig, false));
+    report(
+        "single-path commit (no fsync)",
+        single_path_commits(&root, &repo, &sig, false),
+    );
 
     let (root, repo, sig) = fresh(tmp.path(), "addall");
-    report("add-all commit, one file touched (no fsync)", single_path_commits(&root, &repo, &sig, true));
+    report(
+        "add-all commit, one file touched (no fsync)",
+        single_path_commits(&root, &repo, &sig, true),
+    );
 
     let (root, repo, sig) = fresh(tmp.path(), "burst-many");
     for i in 0..BURST {
@@ -74,7 +89,8 @@ fn main() {
     let mut each = Vec::new();
     for i in 0..BURST {
         let t = Instant::now();
-        repo.commit_paths(&[format!("burst/f{i:04}.md")], "burst", &sig).unwrap();
+        repo.commit_paths(&[format!("burst/f{i:04}.md")], "burst", &sig)
+            .unwrap();
         each.push(t.elapsed());
     }
     report(&format!("burst: {BURST} single-path commits"), each);
@@ -87,13 +103,20 @@ fn main() {
     }
     let start = Instant::now();
     repo.commit_paths(&paths, "burst", &sig).unwrap();
-    println!("burst: one {BURST}-path (group) commit               wall {:.3} s", start.elapsed().as_secs_f64());
+    println!(
+        "burst: one {BURST}-path (group) commit               wall {:.3} s",
+        start.elapsed().as_secs_f64()
+    );
 
     // git2 does not expose GIT_OPT_ENABLE_FSYNC_GITDIR; libgit2 also honours core.fsync config.
     let (root, repo, sig) = fresh(tmp.path(), "fsync");
     let mut cfg = davgit::config::GitConfig::default();
     cfg.config.insert("core.fsync".into(), "all".into());
-    cfg.config.insert("core.fsyncobjectfiles".into(), "true".into());
+    cfg.config
+        .insert("core.fsyncobjectfiles".into(), "true".into());
     repo.apply_config(&cfg).unwrap();
-    report("single-path commit (fsync gitdir)", single_path_commits(&root, &repo, &sig, false));
+    report(
+        "single-path commit (fsync gitdir)",
+        single_path_commits(&root, &repo, &sig, false),
+    );
 }
