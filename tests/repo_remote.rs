@@ -155,3 +155,52 @@ fn push_never_sends_a_force_refspec() {
     }
     assert_eq!(remote_tip(&url), Some(theirs));
 }
+
+#[test]
+fn a_hanging_remote_does_not_block_local_commits() {
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
+    // A remote that accepts the connection and then says nothing.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!(
+        "git://127.0.0.1:{}/repo.git",
+        listener.local_addr().unwrap().port()
+    );
+    let (held_tx, held_rx) = mpsc::channel();
+    thread::spawn(move || {
+        if let Ok((stream, _)) = listener.accept() {
+            let _ = held_tx.send(stream);
+        }
+    });
+
+    let (dir, repo) = temp_repo("main");
+    let cfg = push_cfg(&url);
+    repo.ensure_remote("origin", &url).unwrap();
+    commit(&repo, dir.path(), "a.md", "one", "first");
+
+    let pushing = repo.clone();
+    let push_thread = thread::spawn(move || pushing.push_branch(&cfg));
+    let held = held_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("push connected");
+
+    write(dir.path(), "b.md", b"two");
+    let committing = repo.clone();
+    let (done_tx, done_rx) = mpsc::channel();
+    thread::spawn(move || {
+        let r = committing.commit_paths(&["b.md".to_string()], "second", &sig());
+        let _ = done_tx.send(r.is_ok());
+    });
+    let finished = done_rx.recv_timeout(Duration::from_secs(3));
+
+    drop(held); // lets the stuck push fail and its thread end
+    let _ = push_thread.join();
+    assert_eq!(
+        finished,
+        Ok(true),
+        "a commit must not wait for a push in flight"
+    );
+}

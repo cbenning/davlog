@@ -80,6 +80,8 @@ An event is sent for a divergent remote, repeated push failures (after 3 in a ro
 - **`LOCK` on a missing path** creates the lock but no empty file; the file appears when the client uploads it.
 - **Empty directories** exist on disk but git does not track them, so they vanish from history.
 - **Recursive `DELETE`** of a folder can produce several commits instead of one.
+- **`/healthz` is reserved.** A file named `healthz` at the repository root cannot be reached over WebDAV.
+- **A client-written `.gitignore` can stop versioning.** Files it ignores are served and stored but not committed; the server only logs a warning.
 - **Single writer.** One instance per repository; there is no clustering or failover.
 - **SSH push is covered by unit tests only.** It has not been exercised against a real SSH server in this repository's test run; try one push before relying on it.
 

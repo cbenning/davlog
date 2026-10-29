@@ -280,3 +280,4 @@ Where the implementation differs from, or settled, the text above. The plan is `
 - **Alerts:** each notifier has its own queue and worker; rate limiting happens when an event is raised; `Dispatcher::drain` delivers queued alerts before exit. A foreign-git-state monitor polls every 2 s.
 - **Exit codes:** 0 clean (also after `abort`), 1 error, 2 bad usage or config, 10 needs a bootstrap answer (after a 5 s pause).
 - **Real clients:** rclone round trip identical with every change committed; litmus `basic` 16/16, `copymove` 13/13, `http` 4/4; the HelixNotes CLI syncs two vaults through the server including edits and deletes.
+- **Network work does not hold the repo mutex.** Push and fetch open their own repository handle, so a slow or hung remote never delays commits or writes. libgit2 network timeouts are set (30 s to connect, 120 s of silence); these values are untested against a real stalled server.

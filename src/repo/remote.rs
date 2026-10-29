@@ -127,6 +127,12 @@ pub fn remote_has_branch(cfg: &PushConfig) -> Result<bool, PushError> {
 }
 
 impl Repo {
+    /// A second handle on the same repository for slow network work. The shared mutex
+    /// is not held during network I/O, so a slow or hung remote never delays commits.
+    fn network_handle(&self) -> Result<git2::Repository, PushError> {
+        git2::Repository::open(&self.inner.gitdir).map_err(|e| PushError::from_git2(&e))
+    }
+
     /// Add the remote if it is missing. Errors if it exists with a different URL.
     pub fn ensure_remote(&self, name: &str, url: &str) -> Result<()> {
         let repo = self.lock();
@@ -147,7 +153,7 @@ impl Repo {
 
     /// Push the configured branch with a plain (never forced) refspec.
     pub fn push_branch(&self, cfg: &PushConfig) -> Result<PushResult, PushError> {
-        let repo = self.lock();
+        let repo = self.network_handle()?;
         let local = match repo.refname_to_id(&local_ref(cfg)) {
             Ok(oid) => oid,
             Err(e) if e.code() == ErrorCode::NotFound => return Ok(PushResult::UpToDate),
@@ -203,7 +209,7 @@ impl Repo {
 
     /// Update the remote-tracking ref only. The local branch and working tree are untouched.
     pub fn fetch_branch(&self, cfg: &PushConfig) -> Result<(), PushError> {
-        let repo = self.lock();
+        let repo = self.network_handle()?;
         let observed = Observed::default();
         let mut remote = repo
             .find_remote(&cfg.remote)

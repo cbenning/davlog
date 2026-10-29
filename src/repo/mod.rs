@@ -18,7 +18,7 @@ use tracing::warn;
 use crate::config::GitConfig;
 
 /// Make git behave only as the app config says: ignore the host's system, global,
-/// XDG and program-data git config. Process-global; must run before any repo is opened.
+/// XDG and program-data git config, and set network timeouts. Process-global; must run before any repo is opened.
 pub fn isolate_from_user_git_config() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
@@ -30,6 +30,13 @@ pub fn isolate_from_user_git_config() {
         ] {
             // SAFETY: called once, before repositories are opened by this process.
             let _ = unsafe { git2::opts::set_search_path(level, "") };
+        }
+        // libgit2 has no network timeouts by default, so a dead remote would hang a
+        // push forever. Connecting gets 30 s; a silent server gets 120 s.
+        // SAFETY: as above, set once before any repository is opened.
+        unsafe {
+            let _ = git2::opts::set_server_connect_timeout_in_milliseconds(30_000);
+            let _ = git2::opts::set_server_timeout_in_milliseconds(120_000);
         }
     });
 }
