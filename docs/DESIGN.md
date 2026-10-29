@@ -197,13 +197,21 @@ author_email = "davgit@localhost"
 message_template = "davgit: {summary}"
 wait_for_commit = true       # per_request mode: respond only after the commit finished
 
+# All git behaviour is set here, never by the host: the system and global git
+# config is ignored, and these keys are written to the repo-local config at startup.
+# remote.* keys (use [push]), core.bare and core.worktree are rejected.
+[git.config]
+"core.autocrlf" = "false"
+
 # The whole [push] section is optional. Omit it for a local-only server.
 [push]
 enabled = true
 remote = "origin"
+url = "git@example.com:me/notes.git"   # the server adds the remote itself
 branch = "main"              # home branch
 interval = "10m"
 ssh_key = "/etc/davgit/id_ed25519"       # or token_file for https
+known_hosts = "/etc/davgit/known_hosts"  # required with ssh_key
 
 [notify]
 rate_limit = "24h"
