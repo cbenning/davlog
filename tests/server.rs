@@ -677,10 +677,9 @@ async fn writes_that_add_data_get_507_when_free_space_is_below_the_floor() {
 async fn writes_get_507_when_the_repo_is_over_its_size_cap() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("big.bin"), vec![0u8; 50_000]).unwrap();
-    let (rdir, repo) = (dir, ());
-    let _ = repo;
     // start() makes its own temp repo, so build this one by hand
     setup();
+    let rdir = dir;
     let r = davlog::repo::Repo::open_or_init(rdir.path(), "main").unwrap();
     let toml = format!(
         "[server]\nlisten = \"127.0.0.1:0\"\nrepo_path = \"{}\"\n[auth]\nusername = \"notes\"\n[limits]\nmax_repo_size = \"10KiB\"\n",
