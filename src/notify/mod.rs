@@ -120,7 +120,13 @@ impl RateLimiter {
 /// has its own queue and worker, so a slow or hanging one delays only itself.
 pub struct Dispatcher {
     limiter: std::sync::Mutex<RateLimiter>,
-    workers: Vec<mpsc::UnboundedSender<Event>>,
+    workers: Vec<mpsc::UnboundedSender<WorkerMsg>>,
+}
+
+enum WorkerMsg {
+    Event(Event),
+    /// Answered once everything queued before it has been handled.
+    Sync(tokio::sync::oneshot::Sender<()>),
 }
 
 impl Dispatcher {
@@ -128,9 +134,16 @@ impl Dispatcher {
         let workers = notifiers
             .into_iter()
             .map(|notifier| {
-                let (tx, mut rx) = mpsc::unbounded_channel::<Event>();
+                let (tx, mut rx) = mpsc::unbounded_channel::<WorkerMsg>();
                 tokio::spawn(async move {
-                    while let Some(event) = rx.recv().await {
+                    while let Some(msg) = rx.recv().await {
+                        let event = match msg {
+                            WorkerMsg::Event(event) => event,
+                            WorkerMsg::Sync(done) => {
+                                let _ = done.send(());
+                                continue;
+                            }
+                        };
                         match tokio::time::timeout(SEND_TIMEOUT, notifier.send(&event)).await {
                             Ok(Ok(())) => debug!(notifier = notifier.name(), "alert delivered"),
                             Ok(Err(e)) => {
@@ -167,7 +180,21 @@ impl AlertSink for Dispatcher {
             return;
         }
         for worker in &self.workers {
-            let _ = worker.send(event.clone());
+            let _ = worker.send(WorkerMsg::Event(event.clone()));
+        }
+    }
+}
+
+impl Dispatcher {
+    /// Wait until every event queued so far has been delivered, failed or timed out.
+    /// Call before exiting so a last alert is not lost.
+    pub async fn drain(&self) {
+        let waits = self.workers.iter().filter_map(|worker| {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            worker.send(WorkerMsg::Sync(tx)).ok().map(|()| rx)
+        });
+        for rx in waits.collect::<Vec<_>>() {
+            let _ = tokio::time::timeout(SEND_TIMEOUT + Duration::from_secs(5), rx).await;
         }
     }
 }
@@ -317,6 +344,20 @@ mod tests {
         d.alert(event(EventKind::CommitFailed));
         d.alert(event(EventKind::RepoBadState));
         wait_for(|| good.count() == 2).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn drain_waits_until_queued_events_were_delivered() {
+        let mock = Mock::new("m", Behaviour::Ok);
+        let d = Dispatcher::spawn(vec![mock.clone()], Duration::from_secs(1));
+        d.alert(event(EventKind::CommitFailed));
+        d.alert(event(EventKind::RepoBadState));
+        d.drain().await;
+        assert_eq!(
+            mock.count(),
+            2,
+            "everything queued before drain() was delivered"
+        );
     }
 
     #[tokio::test(start_paused = true)]

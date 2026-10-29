@@ -221,3 +221,46 @@ pub fn other_writer_pushes(url: &str, file: &str, body: &str, msg: &str) -> git2
         .unwrap();
     oid
 }
+
+// ---- notifier fixture ----
+
+use std::future::Future;
+use std::pin::Pin;
+
+use davgit::notify::Notifier;
+
+#[derive(Default)]
+pub struct RecordingNotifier {
+    pub events: Mutex<Vec<Event>>,
+}
+
+impl RecordingNotifier {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    pub fn kinds(&self) -> Vec<davgit::notify::EventKind> {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.kind.clone())
+            .collect()
+    }
+}
+
+impl Notifier for RecordingNotifier {
+    fn name(&self) -> &str {
+        "recording"
+    }
+
+    fn send<'a>(
+        &'a self,
+        event: &'a Event,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            self.events.lock().unwrap().push(event.clone());
+            Ok(())
+        })
+    }
+}
