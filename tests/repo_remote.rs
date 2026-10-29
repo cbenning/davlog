@@ -1,72 +1,9 @@
 mod common;
 
-use std::path::Path;
-use std::time::Duration;
-
 use common::*;
-use davgit::config::{PushAuth, PushConfig};
+use davgit::config::PushConfig;
 use davgit::repo::{PushError, PushResult, Repo};
-use git2::{Repository, RepositoryInitOptions};
-
-fn bare_remote() -> (tempfile::TempDir, String) {
-    setup();
-    let dir = tempfile::tempdir().unwrap();
-    let mut opts = RepositoryInitOptions::new();
-    opts.bare(true).initial_head("main");
-    Repository::init_opts(dir.path(), &opts).unwrap();
-    let url = dir.path().to_str().unwrap().to_string();
-    (dir, url)
-}
-
-fn push_cfg(url: &str) -> PushConfig {
-    PushConfig {
-        remote: "origin".into(),
-        url: Some(url.into()),
-        branch: "main".into(),
-        interval: Duration::from_secs(600),
-        auth: PushAuth::None,
-    }
-}
-
-fn remote_tip(url: &str) -> Option<git2::Oid> {
-    let repo = Repository::open_bare(url).unwrap();
-    repo.refname_to_id("refs/heads/main").ok()
-}
-
-fn local_tip(repo: &Repo) -> git2::Oid {
-    repo.with_repository(|r| r.head().unwrap().target().unwrap())
-}
-
-fn commit(repo: &Repo, dir: &Path, file: &str, body: &str, msg: &str) {
-    write(dir, file, body.as_bytes());
-    repo.commit_paths(&[file.to_string()], msg, &sig())
-        .unwrap()
-        .unwrap();
-}
-
-/// Another writer: clone, commit and push straight to the remote.
-fn other_writer_pushes(url: &str, file: &str, body: &str, msg: &str) -> git2::Oid {
-    let dir = tempfile::tempdir().unwrap();
-    let clone = Repository::clone(url, dir.path()).unwrap();
-    std::fs::write(dir.path().join(file), body).unwrap();
-    let mut index = clone.index().unwrap();
-    index.add_path(Path::new(file)).unwrap();
-    index.write().unwrap();
-    let tree = clone.find_tree(index.write_tree().unwrap()).unwrap();
-    let parent = clone.head().ok().and_then(|h| h.peel_to_commit().ok());
-    let parents: Vec<&git2::Commit> = parent.iter().collect();
-    let s = sig();
-    let oid = clone
-        .commit(Some("HEAD"), &s, &s, msg, &tree, &parents)
-        .unwrap();
-    let branch = clone.head().unwrap().shorthand().unwrap().to_string();
-    clone
-        .find_remote("origin")
-        .unwrap()
-        .push(&[format!("refs/heads/{branch}:refs/heads/main")], None)
-        .unwrap();
-    oid
-}
+use git2::Repository;
 
 fn synced_pair() -> (
     tempfile::TempDir,

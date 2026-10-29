@@ -5,6 +5,7 @@ pub mod committer;
 pub mod config;
 pub mod davfs;
 pub mod notify;
+pub mod pusher;
 pub mod repo;
 pub mod server;
 pub mod status;
