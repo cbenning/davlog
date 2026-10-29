@@ -323,12 +323,10 @@ impl Config {
                 }
                 (Some(path), None) => PasswordCheck::Plain(file_secret(path)?),
                 (None, Some(hash)) => PasswordCheck::Argon2(hash.clone()),
-                (None, None) => {
-                    return invalid(format!(
-                        "no auth password: set auth.password_file, auth.password_hash or {}_PASSWORD",
-                        brand::ENV_PREFIX
-                    ))
-                }
+                (None, None) => return invalid(format!(
+                    "no auth password: set auth.password_file, auth.password_hash or {}_PASSWORD",
+                    brand::ENV_PREFIX
+                )),
             }
         };
 
@@ -410,7 +408,10 @@ impl Config {
                 config: raw.git.config,
             },
             notify: NotifyConfig {
-                rate_limit: raw.notify.rate_limit.unwrap_or(Duration::from_secs(24 * 3600)),
+                rate_limit: raw
+                    .notify
+                    .rate_limit
+                    .unwrap_or(Duration::from_secs(24 * 3600)),
                 email,
             },
         })
@@ -525,8 +526,8 @@ username = "notes"
 
     #[test]
     fn debounce_mode_requires_valid_durations() {
-        let cfg = parse("[commit]\nmode = \"debounce\"\ndebounce = \"5s\"\nmax_wait = \"60s\"")
-            .unwrap();
+        let cfg =
+            parse("[commit]\nmode = \"debounce\"\ndebounce = \"5s\"\nmax_wait = \"60s\"").unwrap();
         assert_eq!(cfg.commit.mode, CommitMode::Debounce);
         assert_eq!(cfg.commit.debounce, Duration::from_secs(5));
         assert_eq!(cfg.commit.max_wait, Duration::from_secs(60));
@@ -560,7 +561,8 @@ username = "notes"
 
     #[test]
     fn password_hash_is_accepted() {
-        let toml = format!("{BASE}\npassword_hash = \"$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$abc\"\n");
+        let toml =
+            format!("{BASE}\npassword_hash = \"$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$abc\"\n");
         let cfg = Config::parse(&toml, &no_env).unwrap();
         assert!(matches!(cfg.auth.password, PasswordCheck::Argon2(_)));
     }
@@ -585,7 +587,8 @@ username = "notes"
 
     #[test]
     fn git_config_table_parses() {
-        let cfg = parse("[git.config]\n\"core.autocrlf\" = \"false\"\n\"user.name\" = \"x\"").unwrap();
+        let cfg =
+            parse("[git.config]\n\"core.autocrlf\" = \"false\"\n\"user.name\" = \"x\"").unwrap();
         assert_eq!(cfg.git.config.get("core.autocrlf").unwrap(), "false");
         assert_eq!(cfg.git.config.len(), 2);
     }
@@ -633,7 +636,9 @@ to = ["me@example.com"]
         // no SMTP password configured anywhere: must be an error naming it
         assert!(cfg.to_string().contains("smtp"), "{cfg}");
 
-        let env = |k: &str| (k == "DAVGIT_SMTP_PASSWORD" || k == "DAVGIT_PASSWORD").then(|| "p".to_string());
+        let env = |k: &str| {
+            (k == "DAVGIT_SMTP_PASSWORD" || k == "DAVGIT_PASSWORD").then(|| "p".to_string())
+        };
         let cfg = Config::parse(
             &format!(
                 "{BASE}\n[notify]\nrate_limit = \"12h\"\n[[notify.email]]\nsmtp_host = \"smtp.example.com\"\nsmtp_port = 587\ntls = \"starttls\"\nusername = \"a\"\nfrom = \"d <a@x>\"\nto = [\"me@example.com\"]\n"
@@ -649,7 +654,9 @@ to = ["me@example.com"]
     #[test]
     fn example_config_parses() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config.example.toml");
-        let env = |k: &str| (k == "DAVGIT_PASSWORD" || k == "DAVGIT_SMTP_PASSWORD").then(|| "p".to_string());
+        let env = |k: &str| {
+            (k == "DAVGIT_PASSWORD" || k == "DAVGIT_SMTP_PASSWORD").then(|| "p".to_string())
+        };
         Config::load(&path, &env).unwrap();
     }
 }
