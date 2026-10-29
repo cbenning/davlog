@@ -20,6 +20,8 @@ Want an off-site copy? Give it a remote and it pushes on a timer. If something l
 
 Plain files are a good home for notes, and a git history is a good safety net for them. Most WebDAV servers don't version anything, and "put a file watcher on a git folder" gets crude fast: half-written files get committed, commit timing is a coin flip, and nobody tells you when a push fails. davgit is the small, careful version of that idea: one repo, one user, one binary.
 
+WebDAV sync can also be error-prone. Clients disagree about who changed what, clocks drift, syncs get interrupted halfway, and sometimes a client decides your notes should be deleted or overwritten. Behind davgit that is annoying instead of permanent: every state the server accepted is a commit, so a bad sync can be found in `git log` and put back with `git revert` or `git checkout`. (The history lives in the server's repository, so it is only as safe as that disk. The optional push to a remote is there for exactly that.)
+
 It makes no assumptions about your client. It has been run against rclone, the litmus conformance suite and a strict notes-sync client (results at the bottom).
 
 ## Try it
