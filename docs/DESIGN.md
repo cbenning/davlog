@@ -108,9 +108,19 @@ Configurable via the config file. One mode is active per instance.
 
 Guess, group commit for `per_request`: while one commit runs, further completed writes queue and are committed together in the next commit. This acts as an adaptive debounce with no timer, and keeps a burst of 1000 uploads from becoming 1000 serialized index rewrites.
 
-Commit cost (not measured, reasoned from how libgit2 works): a commit with path-specific staging (`index.add_path`, write index, write tree, write commit) should take a few to tens of milliseconds, dominated by rewriting the index. Add-all staging stats every file, so it grows with tree size. libgit2 does not fsync by default, which is fast but not crash-durable (an option enables it, at a cost). Run a throwaway benchmark before choosing the default mode. Many small commits also leave many loose objects, and libgit2 cannot `gc`; see `CONCERNS.md` #21.
+Commit cost, measured 2026-10-28 with `cargo run --release --example commit_bench` (5,000-file tree, local NVMe-class disk, libgit2 via `git2` 0.21, 200 samples per row):
 
-Default mode: Decided, `per_request` (with group commit), unless the benchmark finds it too slow. If it does, the default becomes `debounce` and this section is updated.
+| Case | Result |
+|------|--------|
+| Single-path commit (`commit_paths`) | median 4.7 ms, p95 5.6 ms |
+| Add-all commit with one file touched | median 32.8 ms, p95 33.9 ms (grows with tree size) |
+| Burst of 1,000 new files as 1,000 single-path commits | median 8.6 ms each, 8.5 s wall |
+| Same burst as one 1,000-path (group) commit | 0.145 s wall |
+| Single-path commit with `core.fsync=all` and `core.fsyncobjectfiles=true` in repo config | median 4.3 ms; no measurable change, so it is unverified whether libgit2 honoured the setting (`git2` does not expose `GIT_OPT_ENABLE_FSYNC_GITDIR`) |
+
+Path-scoped staging is about 7 times cheaper than add-all on this tree, and group commit makes a burst about 60 times cheaper than serial commits. libgit2 does not fsync by default, which is fast but not crash-durable. Many small commits also leave many loose objects, and libgit2 cannot `gc`; see `CONCERNS.md` #21.
+
+Default mode: Decided, `per_request` (with group commit). The benchmark above is well inside the agreed bar (median under 50 ms, 1,000-commit burst under 60 s), so the default stands.
 
 Common to all modes: configurable author name and email, and a commit message template. Suggested default message: a one-line summary such as `davgit: update 3 files` followed by a body listing changed paths with their change type, truncated after a limit. In per_request mode the message can name the single path and operation.
 

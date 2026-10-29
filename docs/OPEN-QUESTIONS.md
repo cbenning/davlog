@@ -30,7 +30,7 @@ These answers are folded into `DESIGN.md` and `CONCERNS.md`.
 
 ## Still needs the owner
 
-Nothing blocking. The commit-cost benchmark (see "Left to the builder" in `DESIGN.md`) may reopen the default commit mode.
+Nothing blocking. The commit-cost benchmark ran on 2026-10-28 and confirmed `per_request` as the default.
 
 The owner has not yet reviewed the full written design (`DESIGN.md`), and the independent builder check has not been run.
 
