@@ -7,11 +7,13 @@ use std::sync::{Arc, Mutex, MutexGuard, Once, TryLockError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod auth;
+mod maintenance;
 mod remote;
 
 use anyhow::{Context, Result};
 
 use git2::{ConfigLevel, IndexAddOption, Oid, Repository, RepositoryInitOptions, Signature};
+pub use maintenance::{MaintenanceLimits, MaintenanceReport};
 pub use remote::{remote_has_branch, Divergence, PushError, PushResult};
 use tracing::warn;
 
@@ -67,6 +69,8 @@ struct Inner {
     repo: Mutex<Repository>,
     workdir: PathBuf,
     gitdir: PathBuf,
+    /// Only one maintenance run at a time.
+    maintenance: Mutex<()>,
 }
 
 impl Repo {
@@ -94,6 +98,7 @@ impl Repo {
                 repo: Mutex::new(repo),
                 workdir,
                 gitdir,
+                maintenance: Mutex::new(()),
             }),
         })
     }

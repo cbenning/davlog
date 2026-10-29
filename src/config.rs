@@ -189,7 +189,12 @@ pub struct EmailConfig {
 #[derive(Debug, Clone)]
 pub struct MaintenanceConfig {
     pub enabled: bool,
+    /// How often to check whether a repack is due.
     pub interval: Duration,
+    /// Repack when there are more loose objects than this.
+    pub loose_object_limit: usize,
+    /// Repack when there are more packs than this.
+    pub pack_limit: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -254,6 +259,8 @@ struct RawMaintenance {
     enabled: Option<bool>,
     #[serde(default, with = "humantime_serde")]
     interval: Option<Duration>,
+    loose_object_limit: Option<usize>,
+    pack_limit: Option<usize>,
 }
 
 #[derive(Deserialize, Default)]
@@ -492,6 +499,8 @@ impl Config {
                     .maintenance
                     .interval
                     .unwrap_or(Duration::from_secs(6 * 3600)),
+                loose_object_limit: raw.maintenance.loose_object_limit.unwrap_or(2000),
+                pack_limit: raw.maintenance.pack_limit.unwrap_or(20),
             },
             notify: NotifyConfig {
                 rate_limit: raw
@@ -602,13 +611,15 @@ username = "notes"
         assert_eq!(cfg.limits.body_idle_timeout, Duration::from_secs(60));
         assert!(cfg.maintenance.enabled);
         assert_eq!(cfg.maintenance.interval, Duration::from_secs(6 * 3600));
+        assert_eq!(cfg.maintenance.loose_object_limit, 2000);
+        assert_eq!(cfg.maintenance.pack_limit, 20);
     }
 
     #[test]
     fn hardening_settings_parse() {
         let cfg = Config::parse(
             &format!(
-                "{BASE}\nfailed_login_delay = \"250ms\"\n[limits]\nmin_free_space = \"1GiB\"\nmax_repo_size = \"20GiB\"\nmax_connections = 0\nheader_read_timeout = \"5s\"\nbody_idle_timeout = \"10s\"\n[maintenance]\nenabled = false\ninterval = \"1h\"\n"
+                "{BASE}\nfailed_login_delay = \"250ms\"\n[limits]\nmin_free_space = \"1GiB\"\nmax_repo_size = \"20GiB\"\nmax_connections = 0\nheader_read_timeout = \"5s\"\nbody_idle_timeout = \"10s\"\n[maintenance]\nenabled = false\ninterval = \"1h\"\nloose_object_limit = 50\npack_limit = 3\n"
             ),
             &pw_env,
         )
@@ -620,6 +631,8 @@ username = "notes"
         assert_eq!(cfg.limits.header_read_timeout, Duration::from_secs(5));
         assert!(!cfg.maintenance.enabled);
         assert_eq!(cfg.maintenance.interval, Duration::from_secs(3600));
+        assert_eq!(cfg.maintenance.loose_object_limit, 50);
+        assert_eq!(cfg.maintenance.pack_limit, 3);
     }
 
     #[test]

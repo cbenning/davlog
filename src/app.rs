@@ -20,7 +20,7 @@ use crate::disk::DiskGuard;
 use crate::notify::email::EmailNotifier;
 use crate::notify::{AlertSink, Dispatcher, Event, EventKind, Notifier, Severity};
 use crate::pusher::Pusher;
-use crate::repo::{self, ForeignState, Repo};
+use crate::repo::{self, ForeignState, MaintenanceLimits, Repo};
 use crate::server::Server;
 use crate::status::Status;
 
@@ -166,6 +166,14 @@ pub async fn start(
             status.clone(),
         );
         tasks.push(tokio::spawn(pusher.run(stopped(stop_rx.clone()))));
+    }
+    if cfg.maintenance.enabled {
+        tasks.push(tokio::spawn(maintain_repository(
+            repo.clone(),
+            cfg.maintenance.clone(),
+            alerts.clone(),
+            stop_rx.clone(),
+        )));
     }
     tasks.push(tokio::spawn(monitor_git_state(
         repo.clone(),
@@ -332,6 +340,59 @@ async fn monitor_disk(
                 }
             }
             _ = &mut stopped => break,
+        }
+    }
+}
+
+/// Pack loose objects now and then, since libgit2 cannot run `git gc`.
+async fn maintain_repository(
+    repo: Repo,
+    cfg: crate::config::MaintenanceConfig,
+    alerts: Arc<dyn AlertSink>,
+    stop: watch::Receiver<bool>,
+) {
+    let limits = MaintenanceLimits {
+        loose_objects: cfg.loose_object_limit,
+        packs: cfg.pack_limit,
+    };
+    let stopped = stopped(stop);
+    tokio::pin!(stopped);
+    // first look soon after start, then every interval
+    let mut wait = cfg.interval.min(Duration::from_secs(60));
+    let mut failing = false;
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(wait) => {}
+            _ = &mut stopped => break,
+        }
+        wait = cfg.interval;
+        let target = repo.clone();
+        let outcome = tokio::task::spawn_blocking(move || target.maintain(&limits)).await;
+        match outcome {
+            Ok(Ok(_)) => {
+                if failing {
+                    failing = false;
+                    alerts.alert(Event::new(
+                        EventKind::Recovered(Box::new(EventKind::MaintenanceFailed)),
+                        Severity::Recovered,
+                        "repository maintenance works again",
+                        "The last repack succeeded.",
+                    ));
+                }
+            }
+            Ok(Err(e)) => {
+                warn!(error = %format!("{e:#}"), "repository maintenance failed");
+                failing = true;
+                alerts.alert(Event::new(
+                    EventKind::MaintenanceFailed,
+                    Severity::Warning,
+                    "repository maintenance failed",
+                    format!(
+                        "{e:#}\n\nNothing was deleted: a repack removes old files only after the new pack is verified. Commits and pushes are unaffected."
+                    ),
+                ));
+            }
+            Err(e) => warn!(error = %e, "maintenance task failed"),
         }
     }
 }

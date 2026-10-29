@@ -380,3 +380,80 @@ async fn a_healthy_disk_shows_disk_low_false() {
     assert_eq!(health["disk_low"], false, "{health}");
     app.shutdown().await.unwrap();
 }
+
+fn loose_objects(dir: &Path) -> usize {
+    let mut n = 0;
+    for entry in std::fs::read_dir(dir.join(".git/objects"))
+        .unwrap()
+        .flatten()
+    {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.len() == 2 && name.chars().all(|c| c.is_ascii_hexdigit()) {
+            // the directory may be removed by a repack while we count
+            n += std::fs::read_dir(entry.path())
+                .map(|d| d.count())
+                .unwrap_or(0);
+        }
+    }
+    n
+}
+
+#[tokio::test]
+async fn maintenance_packs_loose_objects_in_the_background() {
+    let dir = tempfile::tempdir().unwrap();
+    let n = RecordingNotifier::new();
+    let app = started(
+        dir.path(),
+        "[maintenance]\ninterval = \"200ms\"\nloose_object_limit = 20\npack_limit = 5\n",
+        &n,
+    )
+    .await;
+    for i in 0..30 {
+        let r = req("PUT", url(&app, &format!("/n{}.md", i % 5)))
+            .body(format!("edit {i} {}", "pad ".repeat(50)))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
+    }
+    wait_until(|| loose_objects(dir.path()) < 20).await;
+    let repo = Repo::open_or_init(dir.path(), "main").unwrap();
+    assert_eq!(
+        head_paths(&repo).len(),
+        5,
+        "the tree is intact after repacking"
+    );
+    assert!(
+        dir.path()
+            .join(".git/objects/pack")
+            .read_dir()
+            .unwrap()
+            .count()
+            >= 2,
+        "a pack and its index"
+    );
+    app.shutdown().await.unwrap();
+    assert!(n.kinds().is_empty(), "{:?}", n.kinds());
+}
+
+#[tokio::test]
+async fn maintenance_can_be_turned_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let n = RecordingNotifier::new();
+    let app = started(
+        dir.path(),
+        "[maintenance]\nenabled = false\ninterval = \"100ms\"\nloose_object_limit = 1\npack_limit = 1\n",
+        &n,
+    )
+    .await;
+    for i in 0..5 {
+        req("PUT", url(&app, &format!("/n{i}.md")))
+            .body("x")
+            .send()
+            .await
+            .unwrap();
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    assert!(loose_objects(dir.path()) > 5, "nothing was packed");
+    app.shutdown().await.unwrap();
+}
