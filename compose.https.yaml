@@ -9,6 +9,9 @@
 # Then:
 #   DAVLOG_DOMAIN=notes.example.com docker compose -f compose.https.yaml up -d
 #
+# The image is pulled from ghcr.io (DAVLOG_VERSION picks a release, for example 0.0.1).
+# To build it from this checkout instead, add -f compose.dev.yaml.
+#
 # Without DAVLOG_DOMAIN it serves https://localhost with a certificate from Caddy's local CA.
 # HTTP_PORT and HTTPS_PORT change the published ports (handy for rootless Docker or Podman,
 # which cannot bind 80 and 443).
@@ -17,8 +20,7 @@
 # loops on it. Answer once with DAVLOG_BOOTSTRAP=init (or clone, or abort).
 services:
   davlog:
-    build: .
-    image: ${DAVLOG_IMAGE:-davlog:latest}
+    image: ${DAVLOG_IMAGE:-ghcr.io/cbenning/davlog:${DAVLOG_VERSION:-latest}}
     restart: unless-stopped
     expose:
       - "8080"

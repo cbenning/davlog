@@ -3,7 +3,7 @@
 #
 #   mkdir -p data
 #   printf 'DAVLOG_UID=%s\nDAVLOG_GID=%s\n' "$(id -u)" "$(id -g)" > .env
-#   docker compose up -d --build
+#   docker compose up -d
 #
 # Then point a WebDAV client at http://localhost:8080/ with username "notes" and password
 # "notes" (change it: DAVLOG_PASSWORD=something-else docker compose up -d).
@@ -11,12 +11,14 @@
 # Your files are in ./data, which is the git repository. You own it, so plain git works:
 #   git -C data log --oneline
 #
+# The image is pulled from ghcr.io. To build it from this checkout instead, add
+# -f compose.dev.yaml (see that file).
+#
 # This file is for localhost only. Basic auth over plain HTTP is not safe on a network
 # you don't control.
 services:
   davlog:
-    build: .
-    image: davlog:latest
+    image: ghcr.io/cbenning/davlog:${DAVLOG_VERSION:-latest}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${DAVLOG_PORT:-8080}:8080"

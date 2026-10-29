@@ -1,0 +1,7 @@
+# Build the image from this checkout instead of pulling the published one:
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+# (or -f compose.https.yaml -f compose.dev.yaml for the HTTPS setup)
+services:
+  davlog:
+    build: .
+    image: davlog:dev
