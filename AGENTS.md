@@ -20,7 +20,7 @@
 - Use a real git library (`git2`/libgit2 is the current pick). **Do not shell out to the `git` binary.**
 - Keep alerting abstracted behind a trait so more channels can be added. Email is first.
 - The server must not assume any particular WebDAV client.
-- The project name `davlog` is a working name the owner likes for now but may change, so keep the name in as few places as practical (crate name, binary name, config path, user-agent/server strings).
+- The project is called `davlog` (renamed from `davgit` on 2026-10-29). It is the real name now, but keep it in as few places as practical (crate name, binary name, config path, user-agent/server strings, mostly in `src/brand.rs`) so a rename stays cheap.
 - Owner works in a terse style and likes short, direct answers. Documents and commit messages should still be normal prose.
 
 ## Environment notes

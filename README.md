@@ -15,211 +15,220 @@
 
 <p align="center">
   <a href="#highlights">Highlights</a> &middot;
-  <a href="#try-it">Try it</a> &middot;
-  <a href="#what-its-picky-about">What it's picky about</a> &middot;
+  <a href="#quick-start">Quick start</a> &middot;
   <a href="#when-things-go-wrong">When things go wrong</a> &middot;
   <a href="#pushing-to-a-remote-optional">Backups</a> &middot;
   <a href="#security-and-hardening">Security</a> &middot;
-  <a href="#sharp-edges">Sharp edges</a>
+  <a href="#known-limits">Known limits</a>
 </p>
 
 ---
 
-Point a notes app, rclone, or your file manager at a folder over WebDAV. Behind it sits an ordinary git repository. Every upload, delete and move becomes a commit, so "what did this note say last Tuesday?" is a `git log` away, and "undo that" is a `git revert`.
+davlog is a WebDAV server that keeps your files in a git repository. Every upload, delete and move becomes a commit, so anything you sync over WebDAV (notes, mostly) gets a history and an undo button, and plain git does the work.
 
 ```
  your apps  ──WebDAV──▶  davlog  ──commit──▶  git repo  ──push (optional)──▶  backup remote
 ```
 
 ```
-$ git -C /srv/notes log --oneline
+$ git log --oneline
 3f2a9c1 davlog: update projects/pizza-night.md
 b81d0e4 davlog: move drafts/idea.md -> projects/idea.md
 9c07e55 davlog: delete scratch/old-list.md
 41de6a0 davlog: 3 changes
 ```
 
-Want an off-site copy? Give it a remote and it pushes on a timer. If something looks wrong it stops and emails you, instead of guessing.
-
-*(davlog is a working name and may change.)*
+If you give it a remote, it also pushes there on a timer for an off-site copy. When something goes wrong it emails you.
 
 ## Highlights
 
-- 📝 **Every save is a commit.** Uploads, deletes, moves and copies all land in git with readable messages like `davlog: update notes/a.md`. History, diffs and undo are plain git.
-- 🧱 **Whole files only.** Uploads are written to a temp file and renamed into place, so nobody, including the committer, ever sees half a file. A dropped connection leaves nothing behind.
-- ⚡ **Quick.** A single-file commit took about 5 ms in a 5,000-file tree, and writes that arrive during a commit are committed together.
-- 🛟 **Careful with your backup remote.** It pushes on a timer, but never rebases, merges or force-pushes. If the remote changed behind its back, it pauses and tells you.
-- 📬 **Tells you when something is wrong.** Email alerts (more channels can be added) with the commands to fix it, rate-limited, and a "recovered" note when it clears.
-- 🤝 **Gets out of your way.** Start a rebase or merge inside its repo and it stands down: writes get `503`, reads keep working, and it carries on when you're done.
-- 🧰 **Sets itself up.** No `git init` step. On first start it creates the repo, or asks what to do if the situation is ambiguous.
-- 🔌 **Plain WebDAV.** No special client needed. Tested with rclone, the litmus suite and a strict notes-sync client. Class 2 locking for Finder and Explorer.
-- 🔒 **Locked down.** `.git` and its lookalikes are invisible to clients, symlinks are never followed, passwords are compared in constant time (argon2 hashes supported), and there are limits against slow clients, full disks and floods. See [Security and hardening](#security-and-hardening).
-- 🧹 **Looks after its own repository.** It repacks loose objects in the background, without ever deleting an object.
-- 📦 **One binary, or Docker.** TOML config, secrets from files or environment, and a `/healthz` endpoint that never lists file names.
+- 📝 **Every save is a commit.** Uploads, deletes, moves and copies each become a commit with a readable message like `davlog: update notes/a.md`. History, diffs and undo are normal git.
+- 🧱 **No half-written files.** Uploads go to a temp file and are renamed into place when they finish. A dropped connection leaves nothing behind.
+- ⚡ **Fast enough that you won't notice.** A single-file commit took about 5 ms in a 5,000-file repo. Writes that arrive while a commit is running are committed together.
+- 🛟 **Safe with your backup remote.** davlog pushes on a timer. It never rebases, merges or force-pushes. If the remote has changes it doesn't know about, it stops pushing and emails you.
+- 📬 **Email alerts.** When something goes wrong you get one email with the git commands to fix it, a reminder once a day while it lasts, and a note when it clears. Other channels can be added.
+- 🤝 **Steps aside when you use git.** If you start a rebase or merge in its repository, writes get a `503` until you finish. Reads keep working.
+- 🧰 **Sets itself up.** There's no `git init` step. On first start it creates the repository, or asks what to do if the right answer isn't obvious.
+- 🔌 **Plain WebDAV.** Tested with rclone and a strict notes-sync client, and it passes the litmus suites for basics, copy/move and HTTP. Locking is there for Finder and Explorer.
+- 🔒 **Locked down.** `.git` and names that imitate it are hidden, symlinks aren't followed, and there are limits for slow clients, full disks and floods. See [Security and hardening](#security-and-hardening).
+- 🧹 **Tidies its own repository.** It packs loose objects in the background and never deletes anything.
+- 📦 **Docker first.** Compose files with automatic HTTPS through Caddy. It's also a single binary with a TOML config.
 
 ## Why this exists
 
-Plain files are a good home for notes, and a git history is a good safety net for them. Most WebDAV servers don't version anything, and "put a file watcher on a git folder" gets crude fast: half-written files get committed, commit timing is a coin flip, and nobody tells you when a push fails. davlog is the small, careful version of that idea: one repo, one user, one binary.
+Notes are just files, and git is a good safety net for files. Most WebDAV servers don't keep any history. The usual workaround is a file watcher that commits a git folder, which tends to commit half-written files, picks commit times at random, and says nothing when a push fails. davlog is a small server built to do that job properly: one repository, one user, one binary.
 
-WebDAV sync can also be error-prone. Clients disagree about who changed what, clocks drift, syncs get interrupted halfway, and sometimes a client decides your notes should be deleted or overwritten. Behind davlog that is annoying instead of permanent: every state the server accepted is a commit, so a bad sync can be found in `git log` and put back with `git revert` or `git checkout`. (The history lives in the server's repository, so it is only as safe as that disk. The optional push to a remote is there for exactly that.)
+WebDAV sync also goes wrong sometimes. Two clients disagree about what changed, a clock is off, a sync stops halfway, or a client decides to delete or overwrite your notes. With davlog every state it accepted is a commit, so you can find the bad sync in `git log` and put things back with `git revert` or `git checkout`. The history lives on the server's disk, so it's only as safe as that disk. That's what the optional push to a remote is for.
 
-It makes no assumptions about your client. It has been run against rclone, the litmus conformance suite and a strict notes-sync client (results at the bottom).
+It doesn't assume anything about your client.
 
-## Try it
+## Quick start
 
-```sh
-cargo build --release
-cp config.example.toml davlog.toml          # set repo_path, listen, auth
-printf '%s' 'choose-a-password' > password  # the file auth.password_file points at
-target/release/davlog --config davlog.toml
-```
-
-Point a WebDAV client at `http://127.0.0.1:8080/` and log in with the config's username and password. `curl http://127.0.0.1:8080/healthz` tells you how it's doing. `davlog --help` lists the options, and `config.example.toml` documents every setting.
-
-There's no `git init` step: if `repo_path` has no repository, davlog makes one.
-
-### Docker, with HTTPS
+You need Docker with Compose. This sets up davlog behind [Caddy](https://caddyserver.com/), which gets and renews a Let's Encrypt certificate for you.
 
 ```sh
-mkdir -p data secrets && sudo chown 10001 data
-printf '%s' 'choose-a-long-password' > secrets/password
-cp config.docker.example.toml davlog.toml       # edit
+git clone https://github.com/cbenning/davlog.git && cd davlog
+
+mkdir -p data secrets
+sudo chown 10001 data                          # davlog runs as uid 10001 inside the container
+printf '%s' 'a-long-password' > secrets/password
+cp config.docker.example.toml davlog.toml      # set the username if you like
+
 DAVLOG_DOMAIN=notes.example.com docker compose -f compose.https.yaml up -d
 ```
 
-`compose.https.yaml` runs davlog behind [Caddy](https://caddyserver.com/), which gets and renews a Let's Encrypt certificate for `DAVLOG_DOMAIN` by itself and redirects HTTP to HTTPS. Only Caddy publishes ports; davlog is reachable only from inside the compose network. Without `DAVLOG_DOMAIN` it serves `https://localhost` with a certificate from Caddy's local CA, which is good for a first try (`HTTP_PORT` and `HTTPS_PORT` change the published ports if 80 and 443 are not available to you).
+Point a WebDAV client at `https://notes.example.com/` and log in with the username from `davlog.toml` and the password you put in `secrets/password`.
 
-The compose file also runs davlog with a read-only root filesystem, no Linux capabilities and `no-new-privileges`, and the `Caddyfile` hides `/healthz` from the outside.
+Your files live in `./data`, which is the git repository. To look at the history from the host, run git as the container's user:
 
-**Use HTTPS.** davlog speaks plain HTTP and Basic auth, so your password crosses the wire in the clear unless TLS is in front of it. Any reverse proxy works (nginx, Traefik, a cloud load balancer); `Caddyfile` is the shortest example. `compose.yaml` is the same container without a proxy, for localhost or a network you trust.
+```sh
+sudo -u '#10001' git -C data log --oneline
+```
 
-## What it's picky about
+A few notes:
 
-- **No half-written files.** An upload goes to a temp file inside `.git` and is renamed into place when it's complete. Readers and commits only ever see whole files, and a dropped connection leaves nothing behind.
-- **`.git` doesn't exist, as far as clients can tell.** 404 on every method, and nothing can be created, moved or copied into it. Symlinks are never followed.
-- **It never rewrites your tree behind your back.** No rebase, no merge, no force-push, no fast-forwarding the working tree. It does not try to be clever about conflicts.
-- **It won't guess on first start.** Ambiguous situations get a question, not a coin flip (see below).
-- **Git behaves as the config says.** The host's system and global git config is ignored, and `[git.config]` entries (say, `"core.autocrlf" = "false"`) are written to the repo at every start. Your setup doesn't depend on whose `~/.gitconfig` it happens to run under.
+- Without `DAVLOG_DOMAIN` it serves `https://localhost` with a certificate from Caddy's own local CA. That's fine for trying it out. If ports 80 and 443 aren't available to you, set `HTTP_PORT` and `HTTPS_PORT`.
+- Only Caddy publishes ports. davlog itself is reachable only from inside the compose network, runs with a read-only filesystem and no extra Linux capabilities, and the `Caddyfile` hides `/healthz` from the outside.
+- `compose.yaml` is the same container without Caddy, for localhost or a network you trust. Don't expose it directly: davlog speaks plain HTTP with Basic auth, so the password would cross the network unencrypted. Any reverse proxy works (nginx, Traefik, a cloud load balancer). `Caddyfile` is just the shortest example.
+- To use a password hash instead of a password file, make one with `printf '%s' 'a-long-password' | docker compose -f compose.https.yaml run --rm -T davlog hash-password` and put it in `davlog.toml` as `password_hash`.
+- `config.example.toml` documents every setting.
+
+### Without Docker
+
+```sh
+cargo build --release
+cp config.example.toml davlog.toml        # set repo_path, listen and auth
+printf '%s' 'a-long-password' > password  # the file auth.password_file points at
+target/release/davlog --config davlog.toml
+```
+
+Then point a client at `http://127.0.0.1:8080/`. `curl http://127.0.0.1:8080/healthz` shows how it's doing, and `davlog --help` lists the options. Put a TLS proxy in front of it for anything beyond localhost.
+
+### First start
+
+You don't run `git init`. If the data directory has no repository, davlog creates one. If it already has one, davlog uses it as is. If it's empty and the remote (if you set one) is empty too, it initialises the repository.
+
+In three cases it can't tell what you want, so it asks:
+
+- the directory has files in it but isn't a repository,
+- the remote's branch already has history, or
+- the local and remote histories are unrelated.
+
+On a terminal it prompts you. In a container there's no terminal, so it prints the choices, waits 5 seconds so the logs stay readable, and exits with **code 10**. Answer with `DAVLOG_BOOTSTRAP=clone|init|abort` (or `--bootstrap` when running the binary): `clone` clones the remote, `init` creates a repository and keeps your files, and `abort` exits without changing anything. A container with a restart policy will keep restarting on code 10 until you answer. You can also answer interactively with `docker compose -f compose.https.yaml run --rm davlog`.
+
+Exit codes: 0 clean, 1 error, 2 bad usage or config, 10 needs a bootstrap answer.
 
 ## When things go wrong
 
 | Situation | What davlog does |
 |-----------|------------------|
-| The remote has commits it doesn't have | Fetches only to look, pauses pushing, emails you the ahead/behind counts and the commands to fix it. Keeps serving and committing. Resumes on its own once a push is a fast-forward again. |
-| You start a rebase or merge inside its repo | Stands down: skips commits and pushes, answers writes with `503` and `Retry-After`, keeps serving reads. Carries on when you finish or abort. |
+| The remote has commits it doesn't have | Fetches only to look, stops pushing, and emails you the ahead/behind counts and the commands to fix it. Keeps serving and committing. Starts pushing again on its own once a push would be a fast-forward. |
+| You start a rebase or merge inside its repo | Stops committing and pushing, answers writes with `503` and `Retry-After`, and keeps serving reads. Carries on when you finish or abort. |
 | A commit fails | Keeps the change on disk, retries every few seconds, emails you once, and tells you when it recovers. |
-| A push fails 3 times in a row | Emails you with a hint for the kind of failure: auth, host key, or network. |
-| An upload goes over `max_file_size` (100 MiB by default) | `413`, and the temp file is removed. |
-| It finds uncommitted changes at startup (a crash, say) | Commits them, unless a person has a rebase or merge in progress. |
-| It's started on the wrong branch with `[push]` configured | Refuses to start, so commits don't land where you didn't mean them to. |
+| A push fails 3 times in a row | Emails you, with a hint for the kind of failure: auth, host key, or network. |
+| An upload goes over `max_file_size` (100 MiB by default) | Returns `413` and removes the temp file. |
+| It finds uncommitted changes at startup (after a crash, say) | Commits them, unless you have a rebase or merge in progress. |
+| It starts on the wrong branch with `[push]` configured | Refuses to start, so commits don't land on a branch you didn't mean. |
 
-Alerts go out once, then at most once per `notify.rate_limit` (default 24 h) while a problem lasts, followed by a "recovered" notice. Email is the first channel. Adding another means one new `Notifier` implementation and one config section. A failing notifier never blocks serving, committing or pushing.
+An alert goes out once, then at most once per `notify.rate_limit` (24 hours by default) while the problem lasts, and a "recovered" note follows when it clears. Email is the only channel so far. Adding another takes one new `Notifier` implementation and one config section. A failing notifier never blocks serving, committing or pushing.
 
 ## How commits work
 
-In the default `per_request` mode, each write is committed as soon as it completes and the HTTP response waits for the commit (`wait_for_commit = true`). Writes that arrive while a commit is running are committed together. In the benchmark, a single-file commit in a 5,000-file tree took about 5 ms.
+In the default `per_request` mode, each write is committed as soon as it finishes, and the HTTP response waits for the commit (`wait_for_commit = true`). Writes that arrive while a commit is running are committed together. A commit stages only the paths that changed.
 
-Prefer tidier history? `debounce` waits for a quiet period, and `interval` commits on a timer. A commit stages only the paths that changed.
-
-## First start
-
-If `repo_path` already holds a repository, davlog uses it as is. If it's empty (and the remote, if any, is empty too), davlog initialises it. Otherwise it needs to know what you want:
-
-- the directory has files but isn't a repository,
-- the remote's branch already has history, or
-- the local and remote histories are unrelated.
-
-On a terminal it asks. Without one (a container) it prints the choices to stderr, waits 5 seconds so the logs stay readable, and exits with **code 10**. Answer with `--bootstrap clone|init|abort` or `DAVLOG_BOOTSTRAP=clone|init|abort`: `clone` clones the remote, `init` creates a repository and keeps your local files, `abort` exits without touching anything. A container with a restart policy will loop on code 10 until you answer.
-
-Exit codes: 0 clean, 1 error, 2 bad usage or config, 10 needs a bootstrap answer.
+If you'd rather have tidier history, `debounce` waits for a quiet period and `interval` commits on a timer.
 
 ## Pushing to a remote (optional)
 
-Add a `[push]` section and davlog pushes the configured branch every `interval`. Leave it out for a local-only server.
+Add a `[push]` section and davlog pushes the configured branch every `interval`. Leave it out and davlog just keeps the local repository.
 
-**Treat the remote as a write-only backup.** Anything else writing to that branch (another clone, a web edit, a merged pull request, a restore, a force-push) isn't supported. If it happens, davlog pauses pushing and tells you, as above. To sort it out, work in the server's repository with plain git: merge or rebase the remote's changes by hand, or, if the remote is the one that's wrong, `git push --force-with-lease`.
+**Treat the remote as a write-only backup.** Anything else writing to that branch (another clone, an edit on the web, a merged pull request, a restore, a force-push) isn't supported. When it happens, davlog stops pushing and emails you, and you fix it by hand with plain git in the server's repository: merge or rebase the remote's changes, or, if the remote is the one that's wrong, `git push --force-with-lease`. With the Docker setup the repository is `./data`, so run those commands as `sudo -u '#10001' git -C data ...`. While your rebase or merge is in progress, davlog stays out of the way, and it picks up again when you're done.
 
-SSH remotes need `ssh_key` and a `known_hosts` file; unknown or changed host keys are refused. Only plain `known_hosts` entries are understood (hashed `|1|` entries are ignored). HTTPS remotes use `token_file`.
+davlog doesn't branch or merge for you. Starting a side branch when the remote diverges was considered and left out for now, because it moves your history somewhere you didn't ask for. It's described under "Possible later" in [`docs/DESIGN.md`](docs/DESIGN.md).
 
-Secrets can come from files or from `DAVLOG_PASSWORD`, `DAVLOG_SMTP_PASSWORD`, `DAVLOG_PUSH_TOKEN` and `DAVLOG_PUSH_SSH_PASSPHRASE`, which win over files.
+SSH remotes need `ssh_key` and a `known_hosts` file, and unknown or changed host keys are refused. Only plain `known_hosts` entries are understood; hashed `|1|` entries are ignored. HTTPS remotes use `token_file`.
 
-## Housekeeping
+Secrets can come from files or from `DAVLOG_PASSWORD`, `DAVLOG_SMTP_PASSWORD`, `DAVLOG_PUSH_TOKEN` and `DAVLOG_PUSH_SSH_PASSPHRASE`. The environment variables win over files.
 
-- **Repacking is automatic.** `per_request` mode makes a lot of small commits and loose objects, and libgit2 can't run `git gc`, so davlog packs the repository itself (see [Repository upkeep](#repository-upkeep)).
+## Other things worth knowing
+
+- **Git settings come from davlog's config.** The host's system and global git config is ignored. Put what you need under `[git.config]` (for example `"core.autocrlf" = "false"`) and davlog writes it to the repository's config on every start.
+- **Repacking is automatic.** `per_request` mode makes a lot of small commits and loose objects, and libgit2 can't run `git gc`, so davlog packs the repository itself. See [Repository upkeep](#repository-upkeep).
+- `GET /healthz` needs no login. It returns the last commit and push times, whether pushing is paused, and whether someone has a rebase or merge going in the repo. It never lists file names.
+- Locking (in memory) is there for macOS Finder and Windows Explorer.
 - Git LFS isn't supported.
-- `GET /healthz` needs no login. It returns only the last commit and push times, whether pushing is paused, and whether a person has git state in the repo. It never lists file names.
-- Class 2 locking (in memory) is there for macOS Finder and Windows Explorer.
 
 ## Security and hardening
 
 ### What davlog does for you
 
-- **Passwords are compared in constant time**, and `auth.password_hash` takes an argon2id hash (`printf '%s' 'the password' | davlog hash-password` makes one). Failed logins are logged with the client address, never with what was typed.
-- **`.git` is invisible**, along with names that act as `.git` on someone else's checkout (`.GIT`, `.git.`, `GIT~1`, `.git::$INDEX_ALLOCATION`, and names padded with invisible characters). Symlinks are never followed.
-- **No destructive git operations.** Nothing in davlog rewrites history, force-pushes or prunes, so someone with stolen WebDAV credentials can delete current files but cannot erase what is already committed.
-- **Limits against abuse.** Per-file size, a free-disk floor, an optional repository size cap (writes get `507`, deletes still work), a connection cap, a header-read timeout, a stalled-upload cutoff, `Depth: infinity` refused, and bounded request and PROPFIND sizes. All are in `config.example.toml`.
-- **Stored content can't take over the origin.** Every response carries `X-Content-Type-Options: nosniff`, and HTML, XHTML, SVG and XML are served with `Content-Security-Policy: sandbox`, so a stored page opened in a browser cannot run script against your other files.
-- **Quiet about itself.** `/healthz` exposes only counters and flags, and secrets never appear in logs or debug output.
+- **Passwords are compared in constant time**, and `auth.password_hash` takes an argon2id hash. Failed logins are logged with the client address, never with what was typed.
+- **`.git` is hidden**, along with names that act as `.git` on someone else's checkout (`.GIT`, `.git.`, `GIT~1`, `.git::$INDEX_ALLOCATION`, and names padded with invisible characters). Symlinks are never followed.
+- **No destructive git operations.** Nothing in davlog rewrites history, force-pushes or prunes. Someone with stolen WebDAV credentials can delete your current files, but can't erase what's already committed.
+- **Limits against abuse.** Per-file size, a free-disk floor, an optional cap on repository size (writes get `507`, deletes still work), a connection limit, a header-read timeout, a cutoff for stalled uploads, `Depth: infinity` refused, and bounds on request and PROPFIND sizes. They're all in `config.example.toml`.
+- **Stored files can't take over the origin.** Every response carries `X-Content-Type-Options: nosniff`, and HTML, XHTML, SVG and XML are served with `Content-Security-Policy: sandbox`, so a page someone stored can't run script against your other files when opened in a browser.
+- **Secrets stay out of logs and debug output**, and `/healthz` only exposes counters and flags.
 
 ### What to do yourself
 
-- **Use HTTPS**, always. `compose.https.yaml` is a working example with Caddy.
+- **Use HTTPS.** `compose.https.yaml` is a working setup.
 - **Keep it off the open internet if you can.** A VPN such as Tailscale or WireGuard, or an IP allowlist at your proxy, removes most of the attack surface in one step.
-- **Choose a long random password**, or better, put an argon2 hash in `auth.password_hash`.
-- **Slow down password guessing at the proxy.** davlog logs each failed login as `failed login peer=<address>`, which tools like fail2ban can read. Behind a proxy that address is the proxy's, so rate-limit and ban there (Caddy has rate-limit plugins; nginx has `limit_req`). `auth.failed_login_delay` adds a pause before a wrong-password answer. It is off by default, because a delay also holds the connection open while it waits, so guessers can use it to tie up connection slots. Turn it on if you want a simple extra and have `max_connections` headroom.
-- **Prefer secret files to environment variables.** `docker inspect` shows a container's environment to anyone who can run it. The compose files use Docker secrets, and config files that hold secrets should be readable only by their owner (`chmod 600`).
-- **Give the push credential the least access it needs**: a deploy key or fine-grained token limited to the one backup repository, with write access and nothing else. Keep `known_hosts` current. Give the SMTP account its own app password.
-- **Keep the container locked down.** The compose file already runs it as a non-root user with a read-only filesystem, no capabilities and `no-new-privileges`. Consider `mem_limit` and `pids_limit` too (commented examples are in `compose.https.yaml`).
-- **Watch the disk.** The `507` limits stop a full disk from taking the machine down, and an alert goes out when they kick in. History only grows, so size the volume for it.
-- **Back up the volume as well as the remote.** The history lives on the server's disk. The optional push is one copy; snapshots of the volume are another.
-- **Stay current.** Rebuild the image regularly so OpenSSL and libgit2 fixes arrive. The repository has Dependabot for dependencies and pinned base images, and a weekly `cargo audit`. At the time of writing the audit reports one warning, an "unsound" advisory on the `lru` crate that comes in through `dav-server`, with no fixed release yet.
-- **Treat the repository like any untrusted one if you clone it elsewhere.** Its contents came from whoever has the WebDAV password. Don't run scripts or hooks from it blindly.
+- **Use a long random password**, or better, an argon2 hash in `auth.password_hash`.
+- **Slow down password guessing at the proxy.** davlog logs each failed login as `failed login peer=<address>`, which tools like fail2ban can read. Behind a proxy that address is the proxy's, so rate-limit and ban there (Caddy has rate-limit plugins, nginx has `limit_req`). `auth.failed_login_delay` adds a pause before a wrong-password answer. It's off by default, because a delay also keeps the connection open while it waits, and a flood of guesses could use up the connection slots. Turn it on if you want a simple extra and have `max_connections` to spare.
+- **Prefer secret files to environment variables.** `docker inspect` shows a container's environment to anyone who can run it. The compose files use Docker secrets. If you have config files with secrets in them, make them readable only by their owner (`chmod 600`).
+- **Give the push credential as little access as possible.** A deploy key or fine-grained token for the one backup repository, with write access and nothing else. Keep `known_hosts` current, and give the SMTP account its own app password.
+- **Keep the container locked down.** The compose file runs it as a non-root user with a read-only filesystem, no capabilities and `no-new-privileges`. Consider `mem_limit` and `pids_limit` as well; there are commented examples in `compose.https.yaml`.
+- **Watch the disk.** The `507` limits stop a full disk from taking the machine down, and an alert goes out when they kick in. History only grows, so size the volume with that in mind.
+- **Back up the volume, not just the remote.** The history lives on the server's disk. The push is one copy, and volume snapshots are another.
+- **Keep it updated.** Rebuild the image now and then so OpenSSL and libgit2 fixes arrive. The repository uses Dependabot, pins its base images, and runs `cargo audit` weekly. Right now the audit shows one warning, an "unsound" advisory on the `lru` crate that comes in through `dav-server`. There's no fixed release yet.
+- **Be careful if you clone the repository elsewhere.** Its contents came from whoever has the WebDAV password, so don't run scripts or hooks from it without looking.
 
 ### Repository upkeep
 
-Every commit adds loose objects, and libgit2 can't run `git gc`, so davlog repacks the repository itself (`[maintenance]`, on by default). Every 6 hours it checks, and if there are more than 2,000 loose objects or 20 packs it:
+Every commit adds loose objects, and libgit2 can't run `git gc`, so davlog repacks the repository itself (`[maintenance]`, on by default). Every 6 hours it checks, and if there are more than 2,000 loose objects or 20 packs, it:
 
-1. writes **all** objects (loose or packed, reachable or not) into one new pack,
-2. reads every object back from that pack on its own to prove it is complete,
-3. and only then deletes the loose objects and old packs it replaced.
+1. writes all objects (loose or packed, reachable or not) into one new pack,
+2. reads every object back from that pack on its own, to check the pack is complete,
+3. and only then deletes the loose objects and old packs the new one replaces.
 
-It never prunes: an unreachable object stays in the pack, a pack with a `.keep` file is left alone, and if anything fails before step 3 nothing is deleted. It uses its own repository handle, so commits don't wait for it. `git fsck --full` is clean on a repacked repository and plain `git gc` still works on it.
+It never prunes. Unreachable objects stay in the pack, a pack with a `.keep` file is left alone, and if anything fails before step 3, nothing is deleted. It uses its own repository handle, so commits don't wait for it. `git fsck --full` is clean on a repacked repository, and plain `git gc` still works on it.
 
-What it does **not** do is shrink history. A file you committed and later deleted stays in the repository forever, and so does a secret that was ever uploaded. Removing those means rewriting history, which davlog will never do for you: stop it, run a tool like `git filter-repo` on the repository, and start it again.
+What it doesn't do is shrink history. A file you committed and later deleted stays in the repository, and so does a secret that was ever uploaded. Removing those means rewriting history, and davlog won't do that for you. Stop it, run a tool like `git filter-repo` on the repository, and start it again.
 
-## Sharp edges
+## Known limits
 
-- **No dead properties.** `PROPPATCH` returns 501, so modification times set by a client are ignored (git doesn't store them anyway).
+- **No dead properties.** `PROPPATCH` returns 501, so modification times set by a client are ignored. Git doesn't store them anyway.
 - **Case and Unicode.** The server's filesystem is case-sensitive, so a client on a case-insensitive system can create names that differ only in case. Unicode normalisation isn't applied.
-- **`LOCK` on a path that doesn't exist** makes the lock but no empty file; the file appears when the client uploads it.
-- **Empty directories** exist on disk, but git doesn't track them, so they vanish from history.
-- **Recursive `DELETE`** of a folder can produce several commits instead of one.
-- **`/healthz` is reserved.** A file named `healthz` at the repository root can't be reached over WebDAV.
-- **A client-written `.gitignore` can quietly stop versioning.** Ignored files are stored and served but not committed; davlog only logs a warning.
-- **One writer per repository.** No clustering, no failover. Run one instance per repository.
-- **SSH push is unit-tested only.** There was no real SSH server in the test run, so try one push before you rely on it.
+- **`LOCK` on a path that doesn't exist** creates the lock but no empty file. The file appears when the client uploads it.
+- **Empty directories** exist on disk, but git doesn't track them, so they don't show up in history.
+- **Deleting a folder** can produce several commits instead of one.
+- **`/healthz` is reserved.** A file named `healthz` at the top of the repository can't be reached over WebDAV.
+- **A client-written `.gitignore` can stop files being versioned.** Ignored files are stored and served but not committed, and davlog only logs a warning.
+- **One writer per repository.** There's no clustering or failover. Run one instance per repository.
+- **SSH push is only unit-tested.** There was no real SSH server in the test run, so try one push before you rely on it.
 
-## How well has it been tested?
+## Testing
 
-- `cargo test`: unit and integration tests, including a local bare repository as the remote for push, divergence and recovery.
-- `scripts/smoke.sh`: rclone syncs a tree up and down, compares the result, and checks the commits. It also runs litmus and cadaver if you have them.
+- `cargo test` runs the unit and integration tests, including a local bare repository standing in for the remote to cover push, divergence and recovery.
+- `scripts/smoke.sh` has rclone sync a tree up and down, compares the result, and checks the commits. It also runs litmus and cadaver if you have them installed.
 - **litmus 0.13:** `basic` 16/16, `copymove` 13/13, `http` 4/4, `locks` 38/41, `props` 11/14. Every failure is a `PROPPATCH` (dead properties) answered with 501.
-- **A strict notes-sync client (HelixNotes' CLI):** two vaults syncing through davlog, including edits and deletes in both directions, with every change committed. It only works with strong ETags, and it caught a bug in the WebDAV library davlog is built on (PROPFIND `getetag` came back without quotes, so the client saw weak ETags and refused to delete). davlog now quotes them. Nothing here depends on HelixNotes.
+- **HelixNotes' CLI**, a notes-sync client that checks ETags strictly: two vaults synced through davlog, with edits and deletes in both directions and every change committed. It found a bug in the WebDAV library davlog uses: PROPFIND returned `getetag` without quotes, so the client saw only weak ETags and refused to delete. davlog now adds the quotes. Nothing in davlog depends on HelixNotes.
 
-## Under the hood
+## Built with
 
-Rust, `tokio` and `hyper`, the [`dav-server`](https://crates.io/crates/dav-server) crate for the WebDAV protocol, and [`git2`](https://crates.io/crates/git2) (libgit2) for all git work. It never shells out to the `git` binary.
+Rust, `tokio` and `hyper`, the [`dav-server`](https://crates.io/crates/dav-server) crate for the WebDAV protocol, and [`git2`](https://crates.io/crates/git2) (libgit2) for all git work. davlog never runs the `git` binary.
 
 ## Documents
 
-| File | Purpose |
-|------|---------|
-| `AGENTS.md` | Read first. Ground rules and state for any agent working here. |
-| `docs/CONTEXT.md` | Why this exists, how the idea arose, prior art considered. |
-| `docs/DESIGN.md` | The approved design, plus an "As built" section. |
-| `docs/CONCERNS.md` | Hard parts and edge cases, with the handling chosen. |
-| `docs/OPEN-QUESTIONS.md` | Questions asked and answered. |
+| File | What's in it |
+|------|--------------|
+| `AGENTS.md` | Ground rules and current state, for anyone (or any agent) working on the code. |
+| `docs/CONTEXT.md` | Why this exists and how the idea came about. |
+| `docs/DESIGN.md` | The design, plus an "As built" section. |
+| `docs/CONCERNS.md` | Hard problems and edge cases, and how they were handled. |
+| `docs/OPEN-QUESTIONS.md` | Questions that were asked and answered. |
 | `docs/superpowers/plans/2026-10-28-davlog-v1.md` | The implementation plan. |
+| `SECURITY.md` | How to report a vulnerability. |
 
 ## License
 

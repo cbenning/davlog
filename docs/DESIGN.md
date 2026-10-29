@@ -46,7 +46,7 @@ Run one small server that exposes a directory over WebDAV. The directory is a gi
 | Push rejected | Remote divergence is unsupported. Fetch for diagnosis only, pause pushing, alert, keep serving and committing. No rebase, no merge. Resumes automatically when a push is a fast-forward again (supersedes the earlier "fetch, rebase, retry" decision) |
 | Alerting | Abstracted so it can notify several ways. Email is first |
 | Clients | Do not assume any specific WebDAV client |
-| Project | Standalone, unaffiliated with HelixNotes. Working name `davlog` |
+| Project | Standalone, unaffiliated with HelixNotes. Named `davlog` |
 | Alert events | Any problem: divergent remote, push failures, and other errors (commit failure, bad repo state). The exact list is the builder's to flesh out, with "anything that goes wrong" as the rule |
 | Failure behaviour | On any push problem, keep serving and keep committing locally. Only pushing stops |
 | Per-request commit timing | Configurable whether the HTTP response waits for the commit. Default: wait (`wait_for_commit = true`) |
