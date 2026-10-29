@@ -30,6 +30,9 @@ services:
     environment:
       DAVLOG_BOOTSTRAP: ${DAVLOG_BOOTSTRAP:-}
     # Only /data needs to be writable.
+    # Optional resource limits (size them for your repository):
+    #   mem_limit: 512m
+    #   pids_limit: 256
     read_only: true
     cap_drop:
       - ALL
@@ -37,7 +40,7 @@ services:
       - no-new-privileges:true
 
   caddy:
-    image: caddy:2
+    image: caddy:2@sha256:5e5286cb37d44086d651a5363f05f43a692ce4d649d88fb1bd844579f45fa9e8
     restart: unless-stopped
     depends_on:
       davlog:

@@ -9,10 +9,21 @@ worker_threads = 0           # tokio worker threads for request handling; 0 = nu
 
 [limits]
 max_file_size = "100MiB"     # 413 above this; "0" = unlimited
+min_free_space = "100MiB"    # writes that add data get 507 below this much free disk; "0" = off
+max_repo_size = "0"          # 507 when working tree + .git exceed this; "0" = no cap
+max_connections = 256        # extra connections wait for a slot; 0 = unlimited
+header_read_timeout = "30s"  # a client must finish its headers in this long (also closes idle connections)
+body_idle_timeout = "60s"    # an upload that sends nothing for this long is cut off
 
 [auth]
 username = "notes"
-password_file = "/etc/davlog/password"   # or password_hash = "$argon2id$..."
+password_file = "/etc/davlog/password"   # or password_hash = "$argon2id$..." (make one with: davlog hash-password)
+
+# Pause before answering a wrong password, in addition to the "failed login" log line.
+# A delay makes password guessing slower, but each wrong guess also holds its connection
+# open while it waits, so a flood of guesses can tie up connection slots. Off by default.
+# Rate limiting at your reverse proxy is the better tool; this is a simple extra.
+failed_login_delay = "0s"
 
 [commit]
 mode = "per_request"         # per_request | debounce | interval
@@ -23,6 +34,15 @@ author_name = "davlog"
 author_email = "davlog@localhost"
 message_template = "davlog: {summary}"
 wait_for_commit = true       # per_request mode: respond only after the commit finished
+
+# libgit2 cannot run `git gc`, so davlog packs the repository itself: every `interval` it
+# checks, and if there are more than `loose_object_limit` loose objects or `pack_limit`
+# packs it rewrites everything into one pack. It never deletes an object (see the README).
+[maintenance]
+enabled = true
+interval = "6h"
+loose_object_limit = 2000
+pack_limit = 20
 
 # Extra git settings, written to the repo-local config at every startup.
 # The host's system/global git config is ignored; set everything here.

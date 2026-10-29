@@ -281,3 +281,13 @@ Where the implementation differs from, or settled, the text above. The plan is `
 - **Exit codes:** 0 clean (also after `abort`), 1 error, 2 bad usage or config, 10 needs a bootstrap answer (after a 5 s pause).
 - **Real clients:** rclone round trip identical with every change committed; litmus `basic` 16/16, `copymove` 13/13, `http` 4/4; the HelixNotes CLI syncs two vaults through the server including edits and deletes.
 - **Network work does not hold the repo mutex.** Push and fetch open their own repository handle, so a slow or hung remote never delays commits or writes. libgit2 network timeouts are set (30 s to connect, 120 s of silence); these values are untested against a real stalled server.
+
+### Hardening pass (2026-10-29)
+
+- **Login:** `auth.failed_login_delay` (default 0, the earlier fixed 250 ms is gone because a delay also ties up connections), a `failed login peer=<addr>` log line, and `davlog hash-password`.
+- **Request limits:** `limits.max_connections` (256), `header_read_timeout` (30 s), `body_idle_timeout` (60 s, restarted whenever data arrives). `dav-server` already refuses `Depth: infinity` (501), treats a missing `Depth` as 1 and caps non-PUT request bodies at 64 KiB; tests pin this. PROPFIND answers are buffered only up to 128 MiB (to quote ETags).
+- **Disk:** `limits.min_free_space` (100 MiB) and `limits.max_repo_size` (off). PUT, COPY and MKCOL get 507; reads and deletes still work. An alert and `/healthz` `disk_low` report it.
+- **Maintenance:** libgit2 has no gc, so `Repo::maintain` packs every object into one pack with the pack builder, verifies it by reading each object back from the new pack alone, then deletes the loose objects and old packs. It never prunes, skips `.keep` packs, and uses its own repository handle. Verified with `git fsck --full` and a later `git gc`. `[maintenance]` configures it.
+- **Names:** `is_dotgit_alias` blocks `.git` lookalikes (case, trailing dots and spaces, `GIT~1`, NTFS stream suffixes, HFS-ignorable characters).
+- **Responses:** `nosniff` on every response and `Content-Security-Policy: sandbox` on HTML, XHTML, SVG and XML.
+- **Supply chain:** Dependabot (cargo, actions, docker, compose), a weekly and on-change `cargo audit` workflow, and base images pinned by digest.

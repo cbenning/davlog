@@ -19,6 +19,7 @@
   <a href="#what-its-picky-about">What it's picky about</a> &middot;
   <a href="#when-things-go-wrong">When things go wrong</a> &middot;
   <a href="#pushing-to-a-remote-optional">Backups</a> &middot;
+  <a href="#security-and-hardening">Security</a> &middot;
   <a href="#sharp-edges">Sharp edges</a>
 </p>
 
@@ -52,7 +53,8 @@ Want an off-site copy? Give it a remote and it pushes on a timer. If something l
 - 🤝 **Gets out of your way.** Start a rebase or merge inside its repo and it stands down: writes get `503`, reads keep working, and it carries on when you're done.
 - 🧰 **Sets itself up.** No `git init` step. On first start it creates the repo, or asks what to do if the situation is ambiguous.
 - 🔌 **Plain WebDAV.** No special client needed. Tested with rclone, the litmus suite and a strict notes-sync client. Class 2 locking for Finder and Explorer.
-- 🔒 **Locked down.** `.git` is invisible to clients, symlinks are never followed, and passwords are compared in constant time (argon2 hashes supported).
+- 🔒 **Locked down.** `.git` and its lookalikes are invisible to clients, symlinks are never followed, passwords are compared in constant time (argon2 hashes supported), and there are limits against slow clients, full disks and floods. See [Security and hardening](#security-and-hardening).
+- 🧹 **Looks after its own repository.** It repacks loose objects in the background, without ever deleting an object.
 - 📦 **One binary, or Docker.** TOML config, secrets from files or environment, and a `/healthz` endpoint that never lists file names.
 
 ## Why this exists
@@ -143,10 +145,47 @@ Secrets can come from files or from `DAVLOG_PASSWORD`, `DAVLOG_SMTP_PASSWORD`, `
 
 ## Housekeeping
 
-- **Run `git gc` now and then.** A cron job is enough. libgit2 can't repack, and `per_request` mode makes a lot of small commits and loose objects.
+- **Repacking is automatic.** `per_request` mode makes a lot of small commits and loose objects, and libgit2 can't run `git gc`, so davlog packs the repository itself (see [Repository upkeep](#repository-upkeep)).
 - Git LFS isn't supported.
 - `GET /healthz` needs no login. It returns only the last commit and push times, whether pushing is paused, and whether a person has git state in the repo. It never lists file names.
 - Class 2 locking (in memory) is there for macOS Finder and Windows Explorer.
+
+## Security and hardening
+
+### What davlog does for you
+
+- **Passwords are compared in constant time**, and `auth.password_hash` takes an argon2id hash (`printf '%s' 'the password' | davlog hash-password` makes one). Failed logins are logged with the client address, never with what was typed.
+- **`.git` is invisible**, along with names that act as `.git` on someone else's checkout (`.GIT`, `.git.`, `GIT~1`, `.git::$INDEX_ALLOCATION`, and names padded with invisible characters). Symlinks are never followed.
+- **No destructive git operations.** Nothing in davlog rewrites history, force-pushes or prunes, so someone with stolen WebDAV credentials can delete current files but cannot erase what is already committed.
+- **Limits against abuse.** Per-file size, a free-disk floor, an optional repository size cap (writes get `507`, deletes still work), a connection cap, a header-read timeout, a stalled-upload cutoff, `Depth: infinity` refused, and bounded request and PROPFIND sizes. All are in `config.example.toml`.
+- **Stored content can't take over the origin.** Every response carries `X-Content-Type-Options: nosniff`, and HTML, XHTML, SVG and XML are served with `Content-Security-Policy: sandbox`, so a stored page opened in a browser cannot run script against your other files.
+- **Quiet about itself.** `/healthz` exposes only counters and flags, and secrets never appear in logs or debug output.
+
+### What to do yourself
+
+- **Use HTTPS**, always. `compose.https.yaml` is a working example with Caddy.
+- **Keep it off the open internet if you can.** A VPN such as Tailscale or WireGuard, or an IP allowlist at your proxy, removes most of the attack surface in one step.
+- **Choose a long random password**, or better, put an argon2 hash in `auth.password_hash`.
+- **Slow down password guessing at the proxy.** davlog logs each failed login as `failed login peer=<address>`, which tools like fail2ban can read. Behind a proxy that address is the proxy's, so rate-limit and ban there (Caddy has rate-limit plugins; nginx has `limit_req`). `auth.failed_login_delay` adds a pause before a wrong-password answer. It is off by default, because a delay also holds the connection open while it waits, so guessers can use it to tie up connection slots. Turn it on if you want a simple extra and have `max_connections` headroom.
+- **Prefer secret files to environment variables.** `docker inspect` shows a container's environment to anyone who can run it. The compose files use Docker secrets, and config files that hold secrets should be readable only by their owner (`chmod 600`).
+- **Give the push credential the least access it needs**: a deploy key or fine-grained token limited to the one backup repository, with write access and nothing else. Keep `known_hosts` current. Give the SMTP account its own app password.
+- **Keep the container locked down.** The compose file already runs it as a non-root user with a read-only filesystem, no capabilities and `no-new-privileges`. Consider `mem_limit` and `pids_limit` too (commented examples are in `compose.https.yaml`).
+- **Watch the disk.** The `507` limits stop a full disk from taking the machine down, and an alert goes out when they kick in. History only grows, so size the volume for it.
+- **Back up the volume as well as the remote.** The history lives on the server's disk. The optional push is one copy; snapshots of the volume are another.
+- **Stay current.** Rebuild the image regularly so OpenSSL and libgit2 fixes arrive. The repository has Dependabot for dependencies and pinned base images, and a weekly `cargo audit`. At the time of writing the audit reports one warning, an "unsound" advisory on the `lru` crate that comes in through `dav-server`, with no fixed release yet.
+- **Treat the repository like any untrusted one if you clone it elsewhere.** Its contents came from whoever has the WebDAV password. Don't run scripts or hooks from it blindly.
+
+### Repository upkeep
+
+Every commit adds loose objects, and libgit2 can't run `git gc`, so davlog repacks the repository itself (`[maintenance]`, on by default). Every 6 hours it checks, and if there are more than 2,000 loose objects or 20 packs it:
+
+1. writes **all** objects (loose or packed, reachable or not) into one new pack,
+2. reads every object back from that pack on its own to prove it is complete,
+3. and only then deletes the loose objects and old packs it replaced.
+
+It never prunes: an unreachable object stays in the pack, a pack with a `.keep` file is left alone, and if anything fails before step 3 nothing is deleted. It uses its own repository handle, so commits don't wait for it. `git fsck --full` is clean on a repacked repository and plain `git gc` still works on it.
+
+What it does **not** do is shrink history. A file you committed and later deleted stays in the repository forever, and so does a secret that was ever uploaded. Removing those means rewriting history, which davlog will never do for you: stop it, run a tool like `git filter-repo` on the repository, and start it again.
 
 ## Sharp edges
 

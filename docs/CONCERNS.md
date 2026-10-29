@@ -42,7 +42,7 @@ Each concern was raised when scoping the project. The owner said to work through
 
 20. **Alert delivery safety.** Never hold the repo mutex while sending notifications. Time out SMTP. Queue and rate limit. Failures are logged only.
 
-21. **Loose objects and no `gc`.** Many small commits (per_request mode) leave many loose objects, and libgit2 cannot `gc` or repack. Document that the operator should run `git gc` periodically from outside the server (for example a cron job or a maintenance window), or consider a periodic maintenance task later. Not planned for the first version.
+21. **Loose objects and no `gc`.** Resolved 2026-10-29: davlog repacks the repository itself (`Repo::maintain`, `[maintenance]`). It never prunes, so deleted files and old secrets stay in history; removing them needs a history rewrite with an external tool on a stopped instance. See the README, "Repository upkeep".
 
 22. **Divergent remote.** Unsupported by design (the remote is a write-only backup). The server fetches for diagnosis only, pauses pushing, alerts, and resumes when a push is a fast-forward again. See `DESIGN.md` "Divergent remote". The conflict-branch idea is parked under "Possible later"; if it returns, it needs a merge-commit-only policy and a refs scan for unmerged conflict branches.
 
