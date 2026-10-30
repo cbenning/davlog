@@ -260,7 +260,7 @@ dependencies = [
 
 [[package]]
 name = "davlog"
-version = "1.0.0-RC1"
+version = "1.0.0-RC2"
 dependencies = [
  "anyhow",
  "argon2",

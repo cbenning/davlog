@@ -9,7 +9,7 @@
 # Then:
 #   DAVLOG_DOMAIN=notes.example.com docker compose -f compose.https.yaml up -d
 #
-# The image is pulled from ghcr.io (DAVLOG_VERSION picks a release, for example 1.0.0-RC1).
+# The image is pulled from ghcr.io (DAVLOG_VERSION picks a release, for example 1.0.0-RC2).
 # To build it from this checkout instead, add -f compose.dev.yaml.
 #
 # Without DAVLOG_DOMAIN it serves https://localhost with a certificate from Caddy's local CA.

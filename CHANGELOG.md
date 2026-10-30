@@ -2,7 +2,7 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
-## 1.0.0-RC1 - 2026-10-29
+## 1.0.0-RC2 - 2026-10-29
 
 First release candidate. It has been tested with rclone, the litmus suites and a strict notes-sync client, but not widely used, so please report anything that breaks.
 
