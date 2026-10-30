@@ -54,7 +54,7 @@ jobs:
             org.opencontainers.image.title=davlog
             org.opencontainers.image.description=A WebDAV server where every save is a git commit
             org.opencontainers.image.licenses=MIT
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           # amd64 only: an emulated arm64 build takes hours: native arm runners or cross compilation would fix that
