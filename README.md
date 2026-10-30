@@ -64,44 +64,83 @@ It doesn't assume anything about your client.
 
 ## Quick start
 
-You need Docker with Compose.
+Save this as `docker-compose.yml`:
 
-### Try it on your machine
+```yaml
+name: davlog
 
-```sh
-git clone https://github.com/cbenning/davlog.git && cd davlog
+services:
+  davlog:
+    image: ghcr.io/cbenning/davlog:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DAVLOG_PASSWORD: change-me
+      DAVLOG_BOOTSTRAP: init
+    volumes:
+      - data:/data
+    configs:
+      - source: davlog.toml
+        target: /etc/davlog/davlog.toml
 
-mkdir -p data
-printf 'DAVLOG_UID=%s\nDAVLOG_GID=%s\n' "$(id -u)" "$(id -g)" > .env   # so ./data is yours
-docker compose up -d
+volumes:
+  data:
+
+configs:
+  davlog.toml:
+    content: |
+      [server]
+      listen = "0.0.0.0:8080"
+      repo_path = "/data"
+      [auth]
+      username = "notes"
 ```
 
-davlog is now at `http://localhost:8080/`. Log in with username `notes` and password `notes` (set `DAVLOG_PASSWORD=something-else` to change it). This setup is plain HTTP on localhost only, so use it for trying things out, not for a server other people can reach. The image comes from `ghcr.io/cbenning/davlog` (set `DAVLOG_VERSION=1.0.0-RC2` to pin a release instead of `latest`). To build it from your checkout instead, add `-f compose.dev.yaml`: `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
+Then run `docker compose up -d`.
 
-Your files are in `./data`, which is the git repository, and you own it, so plain git works on it:
-
-```sh
-git -C data log --oneline
-```
-
-**Connect a client.** Any WebDAV client works. With rclone:
+davlog is now at `http://localhost:8080/`. Log in with username `notes` and the password you set (`change-me` above). Point any WebDAV client at it; for example, with rclone:
 
 ```sh
 rclone ls :webdav: --webdav-url=http://localhost:8080 --webdav-user=notes \
-  --webdav-pass="$(rclone obscure notes)" --webdav-vendor=other
+  --webdav-pass="$(rclone obscure change-me)" --webdav-vendor=other
 ```
 
-With the HelixNotes CLI (or the app's WebDAV settings, with the same URL, username and password):
+Your files are in a git repository inside the `data` volume. To see the history:
+
+```sh
+docker run --rm -v davlog_data:/data alpine/git -c safe.directory=/data -C /data log --oneline
+```
+
+This is plain HTTP on localhost only, which is fine for trying it out. For a server other people can reach, put HTTPS in front of it (see below). `docker compose down` stops it, and `docker compose down -v` also deletes your files.
+
+### Keep the files in a normal folder
+
+`compose.yaml` in this repo does the same thing with the repository in `./data` on your machine, owned by you, so you can use git on it directly:
+
+```sh
+git clone https://github.com/cbenning/davlog.git && cd davlog
+mkdir -p data
+printf 'DAVLOG_UID=%s\nDAVLOG_GID=%s\n' "$(id -u)" "$(id -g)" > .env   # so ./data is yours
+docker compose up -d
+git -C data log --oneline
+```
+
+The login is `notes` / `notes` (set `DAVLOG_PASSWORD=something-else` to change it). To pin a release instead of `latest`, set `DAVLOG_VERSION=1.0.0-RC2`. To build the image from your checkout, add `-f compose.dev.yaml`: `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
+
+### Connect HelixNotes
+
+In the app's WebDAV settings use the same URL, username and password. For the CLI:
 
 ```sh
 export HELIXNOTES_WEBDAV_URL=http://localhost:8080/
 export HELIXNOTES_WEBDAV_USERNAME=notes
-export HELIXNOTES_WEBDAV_PASSWORD_FILE=~/.config/helixnotes/password   # a file containing: notes
+export HELIXNOTES_WEBDAV_PASSWORD_FILE=~/.config/helixnotes/password   # a file containing your password
 export HELIXNOTES_VAULT=~/notes
 helixnotes-cli sync
 ```
 
-Sync a vault, change or delete a note, sync again, and look at `git -C data log` to see each change as a commit. Stop it with `docker compose down`; your files stay in `./data`.
+Sync a vault, change or delete a note, sync again, and look at the history to see each change as a commit.
 
 ### Run it for real, with HTTPS
 
