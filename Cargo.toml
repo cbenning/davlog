@@ -1,6 +1,6 @@
 [package]
 name = "davlog"
-version = "1.0.0-RC2"
+version = "1.0.0-RC3"
 edition = "2021"
 description = "WebDAV server backed by a git working tree"
 license = "MIT"

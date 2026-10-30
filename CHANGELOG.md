@@ -2,7 +2,7 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
-## Unreleased
+## 1.0.0-RC3 - 2026-10-30
 
 Fixes from a review of the code:
 

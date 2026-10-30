@@ -126,7 +126,7 @@ docker compose up -d
 git -C data log --oneline
 ```
 
-The login is `notes` / `notes` (set `DAVLOG_PASSWORD=something-else` to change it). To pin a release instead of `latest`, set `DAVLOG_VERSION=1.0.0-RC2`. To build the image from your checkout, add `-f compose.dev.yaml`: `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
+The login is `notes` / `notes` (set `DAVLOG_PASSWORD=something-else` to change it). To pin a release instead of `latest`, set `DAVLOG_VERSION=1.0.0-RC3`. To build the image from your checkout, add `-f compose.dev.yaml`: `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
 
 ### Connect HelixNotes
 
