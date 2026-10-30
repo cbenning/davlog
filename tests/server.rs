@@ -787,3 +787,63 @@ async fn ordinary_content_gets_no_csp_so_pdfs_and_images_keep_working_in_a_brows
         );
     }
 }
+
+#[tokio::test]
+async fn a_client_that_stops_reading_a_download_is_cut_off() {
+    let s = start("[limits]\nbody_idle_timeout = \"400ms\"\n").await;
+    let size = 96 * 1024 * 1024;
+    std::fs::write(s.dir.path().join("big.bin"), vec![7u8; size]).unwrap();
+
+    let mut stream = TcpStream::connect(s.addr).await.unwrap();
+    let request = format!(
+        "GET /big.bin HTTP/1.1\r\nHost: x\r\nAuthorization: {}\r\n\r\n",
+        basic()
+    );
+    stream.write_all(request.as_bytes()).await.unwrap();
+    // read nothing for a while: the server's send buffer fills and it stalls
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
+    // the server must have given up: draining now ends early instead of delivering it all
+    let mut total = 0usize;
+    let mut buf = vec![0u8; 1 << 20];
+    let ended = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            match stream.read(&mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => total += n,
+            }
+        }
+    })
+    .await;
+    assert!(ended.is_ok(), "the connection ended");
+    assert!(
+        total < size,
+        "received {total} of {size}: the stalled download was cut off"
+    );
+}
+
+#[tokio::test]
+async fn a_slow_but_steady_download_is_not_cut_off() {
+    let s = start("[limits]\nbody_idle_timeout = \"1s\"\n").await;
+    let size = 8 * 1024 * 1024;
+    std::fs::write(s.dir.path().join("mid.bin"), vec![1u8; size]).unwrap();
+    let mut stream = TcpStream::connect(s.addr).await.unwrap();
+    let request = format!(
+        "GET /mid.bin HTTP/1.1\r\nHost: x\r\nConnection: close\r\nAuthorization: {}\r\n\r\n",
+        basic()
+    );
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut total = 0usize;
+    let mut buf = vec![0u8; 256 * 1024];
+    loop {
+        match tokio::time::timeout(Duration::from_secs(10), stream.read(&mut buf)).await {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => {
+                total += n;
+                tokio::time::sleep(Duration::from_millis(20)).await; // reads slowly, never stalls
+            }
+            other => panic!("read failed: {other:?}"),
+        }
+    }
+    assert!(total >= size, "received {total} of {size}");
+}

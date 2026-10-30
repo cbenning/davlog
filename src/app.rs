@@ -10,7 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use git2::Signature;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::bootstrap::{self, Action, Choice, ResolveError, Terminal};
 use crate::brand;
@@ -73,7 +73,7 @@ pub struct App {
     addr: SocketAddr,
     stop: watch::Sender<bool>,
     server: JoinHandle<Result<()>>,
-    tasks: Vec<JoinHandle<()>>,
+    tasks: Vec<(&'static str, JoinHandle<()>)>,
     committer: Committer,
     dispatcher: Arc<Dispatcher>,
 }
@@ -81,6 +81,42 @@ pub struct App {
 impl App {
     pub fn local_addr(&self) -> SocketAddr {
         self.addr
+    }
+
+    pub fn committer(&self) -> &Committer {
+        &self.committer
+    }
+
+    /// Resolves with the name of a core part that has stopped without being asked to. If the
+    /// committer or the pusher died quietly, the server would keep accepting uploads that
+    /// never get committed, so the caller should exit and let the container restart.
+    /// Never resolves once shutdown has begun.
+    pub async fn failure(&self) -> String {
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            if *self.stop.borrow() {
+                std::future::pending::<()>().await;
+            }
+            if !self.committer.is_running() {
+                return "committer".to_string();
+            }
+            if self.server.is_finished() {
+                return "http server".to_string();
+            }
+            if let Some((name, _)) = self.tasks.iter().find(|(_, t)| t.is_finished()) {
+                return (*name).to_string();
+            }
+        }
+    }
+
+    /// Kill a background task, to test that its death is noticed.
+    #[doc(hidden)]
+    pub fn abort_task_for_test(&self, name: &str) {
+        for (task_name, task) in &self.tasks {
+            if *task_name == name {
+                task.abort();
+            }
+        }
     }
 
     /// Stop accepting requests, let in-flight ones finish, make a final commit, and
@@ -91,7 +127,7 @@ impl App {
         // Make the final commit before waiting on anything that can be slow: a push stuck on
         // an unresponsive remote must not delay it, or cost us the chance to make it.
         let committed = self.committer.shutdown().await;
-        for mut task in self.tasks {
+        for (_, mut task) in self.tasks {
             if tokio::time::timeout(TASK_STOP_GRACE, &mut task)
                 .await
                 .is_err()
@@ -175,34 +211,39 @@ pub async fn start(
             alerts.clone(),
             status.clone(),
         );
-        tasks.push(tokio::spawn(pusher.run(stopped(stop_rx.clone()))));
+        tasks.push(("pusher", tokio::spawn(pusher.run(stopped(stop_rx.clone())))));
     }
     if cfg.maintenance.enabled {
-        tasks.push(tokio::spawn(maintain_repository(
+        tasks.push((
+            "maintenance",
+            tokio::spawn(maintain_repository(
+                repo.clone(),
+                cfg.maintenance.clone(),
+                alerts.clone(),
+                stop_rx.clone(),
+            )),
+        ));
+    }
+    tasks.push((
+        "git state monitor",
+        tokio::spawn(monitor_git_state(
             repo.clone(),
-            cfg.maintenance.clone(),
+            status.clone(),
             alerts.clone(),
             stop_rx.clone(),
-        )));
-    }
-    tasks.push(tokio::spawn(monitor_git_state(
-        repo.clone(),
-        status.clone(),
-        alerts.clone(),
-        stop_rx.clone(),
-    )));
+        )),
+    ));
 
     let server = Server::bind(&cfg, repo, committer.clone(), status.clone()).await?;
     let disk = server.disk();
-    tasks.push(tokio::spawn(
-        disk.clone().run_refresh(stopped(stop_rx.clone())),
+    tasks.push((
+        "disk size refresh",
+        tokio::spawn(disk.clone().run_refresh(stopped(stop_rx.clone()))),
     ));
-    tasks.push(tokio::spawn(monitor_disk(
-        disk,
-        status,
-        alerts.clone(),
-        stop_rx.clone(),
-    )));
+    tasks.push((
+        "disk monitor",
+        tokio::spawn(monitor_disk(disk, status, alerts.clone(), stop_rx.clone())),
+    ));
     let addr = server.local_addr();
     info!(%addr, "{} is serving", brand::NAME);
     let server = tokio::spawn(server.serve(stopped(stop_rx)));
@@ -227,7 +268,14 @@ pub async fn run(
     let Some(app) = start(cfg, options, terminal).await? else {
         return Ok(AppExit::Aborted);
     };
-    shutdown.await;
+    tokio::select! {
+        _ = shutdown => {}
+        who = app.failure() => {
+            error!(component = %who, "a core component stopped unexpectedly; exiting so it can be restarted");
+            let _ = app.shutdown().await;
+            return Err(AppError::Other(anyhow!("{who} stopped unexpectedly")));
+        }
+    }
     info!("shutting down");
     app.shutdown().await?;
     Ok(AppExit::Clean)

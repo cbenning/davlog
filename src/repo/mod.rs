@@ -144,10 +144,22 @@ impl Repo {
         index.read(true)?;
         let mut failed = 0;
         for path in paths {
-            if let Err(e) = stage_path(&repo, &mut index, &self.inner.workdir, path.as_ref()) {
-                // One unreadable file must not block every other change from being committed.
-                failed += 1;
-                warn!(path = path.as_ref(), error = %format!("{e:#}"), "skipping a path that could not be staged");
+            let path = path.as_ref();
+            match stage_with_retry(&repo, &mut index, &self.inner.workdir, path) {
+                Ok(()) => {}
+                Err(e) if is_transient(&e) => {
+                    // Other requests are still changing it. Whichever one it is records its
+                    // own change when it finishes, which triggers the next commit.
+                    warn!(
+                        path,
+                        "left for the next commit: it kept changing while being staged"
+                    );
+                }
+                Err(e) => {
+                    // One unreadable file must not block every other change from being committed.
+                    failed += 1;
+                    warn!(path, error = %format!("{e:#}"), "skipping a path that could not be staged");
+                }
             }
         }
         if failed > 0 && failed == paths.len() {
@@ -207,15 +219,61 @@ impl Repo {
             Err(TryLockError::Poisoned(p)) => p.into_inner(),
         };
         let git = &self.inner.gitdir;
-        if ["rebase-merge", "rebase-apply", "MERGE_HEAD"]
-            .iter()
-            .any(|name| git.join(name).exists())
+        // Anything a person leaves half-done: a rebase, a merge, a cherry-pick or revert
+        // (and the sequencer that drives multi-commit ones).
+        if [
+            "rebase-merge",
+            "rebase-apply",
+            "MERGE_HEAD",
+            "CHERRY_PICK_HEAD",
+            "REVERT_HEAD",
+            "sequencer",
+        ]
+        .iter()
+        .any(|name| git.join(name).exists())
         {
             ForeignState::RebaseOrMerge
         } else if git.join("index.lock").exists() {
             ForeignState::IndexLock
         } else {
             ForeignState::None
+        }
+    }
+}
+
+/// A file that vanished or changed while it was being read: other requests are working in
+/// the same folder, which is normal under load.
+fn is_transient(e: &anyhow::Error) -> bool {
+    e.chain().any(|cause| {
+        cause.downcast_ref::<git2::Error>().is_some_and(|g| {
+            g.code() == git2::ErrorCode::NotFound
+                || g.class() == git2::ErrorClass::Filesystem
+                // a file removed mid-read reports a bare OS error; a permission error is
+                // the same class but will not go away by itself
+                || (g.class() == git2::ErrorClass::Os
+                    && !g.message().to_ascii_lowercase().contains("permission denied"))
+        }) || cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
+    })
+}
+
+/// Stage a path, trying again a few times if it changes underneath us.
+fn stage_with_retry(
+    repo: &Repository,
+    index: &mut git2::Index,
+    workdir: &Path,
+    rel: &str,
+) -> Result<()> {
+    const ATTEMPTS: u32 = 8;
+    let mut attempt = 1;
+    loop {
+        match stage_path(repo, index, workdir, rel) {
+            Err(e) if is_transient(&e) && attempt < ATTEMPTS => {
+                std::thread::sleep(Duration::from_millis(5 * u64::from(attempt)));
+                attempt += 1;
+            }
+            other => return other,
         }
     }
 }

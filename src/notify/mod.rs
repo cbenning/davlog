@@ -91,32 +91,64 @@ pub trait Notifier: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'a>>;
 }
 
-/// Lets the first event for a key through at once, then at most one per period.
+/// A problem that comes back within this long of its recovery is held back instead of being
+/// reported again straight away, so a condition that flaps around a threshold sends at most
+/// one alert and one recovery per hour instead of an email every few seconds.
+pub const FLAP_GUARD: Duration = Duration::from_secs(3600);
+
+struct KeyState {
+    last_sent: Instant,
+    /// True from an alert until its recovery.
+    active: bool,
+}
+
+/// Lets the first event for a key through at once, then at most one reminder per period
+/// while the problem lasts. A recovery is reported only for an alert that went out.
 pub struct RateLimiter {
     period: Duration,
-    last: HashMap<String, Instant>,
+    guard: Duration,
+    keys: HashMap<String, KeyState>,
 }
 
 impl RateLimiter {
     pub fn new(period: Duration) -> Self {
         RateLimiter {
             period,
-            last: HashMap::new(),
+            guard: period.min(FLAP_GUARD),
+            keys: HashMap::new(),
         }
     }
 
     pub fn allow(&mut self, key: &str, now: Instant) -> bool {
-        match self.last.get(key) {
-            Some(&at) if now.duration_since(at) < self.period => false,
-            _ => {
-                self.last.insert(key.to_string(), now);
-                true
+        if let Some(state) = self.keys.get(key) {
+            let wait = if state.active {
+                self.period
+            } else {
+                self.guard
+            };
+            if now.duration_since(state.last_sent) < wait {
+                return false;
             }
         }
+        self.keys.insert(
+            key.to_string(),
+            KeyState {
+                last_sent: now,
+                active: true,
+            },
+        );
+        true
     }
 
-    pub fn clear(&mut self, key: &str) {
-        self.last.remove(key);
+    /// True if a recovery for `key` should be sent now.
+    pub fn recovered(&mut self, key: &str, _now: Instant) -> bool {
+        match self.keys.get_mut(key) {
+            Some(state) if state.active => {
+                state.active = false;
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -172,10 +204,7 @@ impl AlertSink for Dispatcher {
         let pass = {
             let mut limiter = self.limiter.lock().unwrap_or_else(|p| p.into_inner());
             match &event.kind {
-                EventKind::Recovered(inner) => {
-                    limiter.clear(inner.key());
-                    true
-                }
+                EventKind::Recovered(inner) => limiter.recovered(inner.key(), Instant::now()),
                 kind => limiter.allow(kind.key(), Instant::now()),
             }
         };
@@ -282,25 +311,62 @@ mod tests {
 
     #[test]
     fn rate_limiter_is_per_key() {
-        let mut rl = RateLimiter::new(Duration::from_secs(60));
+        let mut rl = RateLimiter::new(Duration::from_secs(24 * 3600));
         let t0 = Instant::now();
         assert!(rl.allow("a", t0));
         assert!(rl.allow("b", t0));
         assert!(!rl.allow("a", t0));
-        rl.clear("a");
-        assert!(rl.allow("a", t0));
+    }
+
+    #[test]
+    fn recovery_is_only_reported_for_an_alert_that_was_sent() {
+        let mut rl = RateLimiter::new(Duration::from_secs(3600));
+        let t0 = Instant::now();
+        assert!(!rl.recovered("k", t0), "nothing was alerted");
+        assert!(rl.allow("k", t0));
+        assert!(rl.recovered("k", t0 + Duration::from_secs(5)));
+        assert!(
+            !rl.recovered("k", t0 + Duration::from_secs(6)),
+            "already reported"
+        );
+    }
+
+    #[test]
+    fn a_new_problem_right_after_recovery_waits_out_the_flap_guard() {
+        let mut rl = RateLimiter::new(Duration::from_secs(24 * 3600));
+        let t0 = Instant::now();
+        assert!(rl.allow("k", t0));
+        assert!(rl.recovered("k", t0 + Duration::from_secs(30)));
+        assert!(
+            !rl.allow("k", t0 + Duration::from_secs(60)),
+            "flapping: held back"
+        );
+        assert!(
+            rl.allow("k", t0 + FLAP_GUARD + Duration::from_secs(1)),
+            "a later problem is reported"
+        );
+    }
+
+    #[test]
+    fn the_guard_never_exceeds_the_configured_period() {
+        let mut rl = RateLimiter::new(Duration::from_secs(60));
+        let t0 = Instant::now();
+        assert!(rl.allow("k", t0));
+        assert!(rl.recovered("k", t0 + Duration::from_secs(1)));
+        assert!(rl.allow("k", t0 + Duration::from_secs(61)));
     }
 
     #[tokio::test(start_paused = true)]
-    async fn recovered_passes_and_resets_key() {
+    async fn recovery_follows_an_alert_and_a_later_problem_is_reported_again() {
         let mock = Mock::new("m", Behaviour::Ok);
-        let d = Dispatcher::spawn(vec![mock.clone()], Duration::from_secs(3600));
+        let d = Dispatcher::spawn(vec![mock.clone()], Duration::from_secs(24 * 3600));
         d.alert(event(EventKind::PushPaused));
         wait_for(|| mock.count() == 1).await;
-        d.alert(event(EventKind::PushPaused)); // suppressed
+        d.alert(event(EventKind::PushPaused)); // suppressed: same problem, inside the period
         d.alert(event(EventKind::Recovered(Box::new(EventKind::PushPaused))));
         wait_for(|| mock.count() == 2).await;
-        d.alert(event(EventKind::PushPaused)); // key was reset
+        tokio::time::advance(FLAP_GUARD + Duration::from_secs(1)).await;
+        d.alert(event(EventKind::PushPaused)); // a real new problem, long after
         wait_for(|| mock.count() == 3).await;
         let kinds: Vec<_> = mock
             .events
@@ -317,6 +383,34 @@ mod tests {
                 EventKind::PushPaused
             ]
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_flapping_problem_does_not_flood_the_inbox() {
+        let mock = Mock::new("m", Behaviour::Ok);
+        let d = Dispatcher::spawn(vec![mock.clone()], Duration::from_secs(24 * 3600));
+        for _ in 0..20 {
+            d.alert(event(EventKind::DiskLow));
+            d.alert(event(EventKind::Recovered(Box::new(EventKind::DiskLow))));
+            tokio::time::advance(Duration::from_secs(30)).await;
+        }
+        d.drain().await;
+        assert_eq!(
+            mock.count(),
+            2,
+            "one alert and one recovery, not forty emails"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_recovery_for_an_alert_that_never_went_out_is_not_sent() {
+        let mock = Mock::new("m", Behaviour::Ok);
+        let d = Dispatcher::spawn(vec![mock.clone()], Duration::from_secs(3600));
+        d.alert(event(EventKind::Recovered(Box::new(
+            EventKind::CommitFailed,
+        ))));
+        d.drain().await;
+        assert_eq!(mock.count(), 0);
     }
 
     #[tokio::test(start_paused = true)]

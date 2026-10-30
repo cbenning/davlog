@@ -288,6 +288,7 @@ What it doesn't do is shrink history. A file you committed and later deleted sta
 - **Deleting a folder** can produce several commits instead of one.
 - **`/healthz` is reserved.** A file named `healthz` at the top of the repository can't be reached over WebDAV.
 - **A client-written `.gitignore` can stop files being versioned.** Ignored files are stored and served but not committed, and davlog only logs a warning.
+- **Don't edit files in the data directory by hand while davlog is running.** It commits what it finds, and a file that is rewritten in place while davlog reads it can crash the process. Changes made over WebDAV are always safe, and so is stopping davlog first.
 - **One writer per repository.** There's no clustering or failover. Run one instance per repository.
 - **SSH push has only been run against GitHub**, with a deploy key. Other SSH servers should work but haven't been tried.
 

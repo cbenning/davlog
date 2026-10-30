@@ -2,6 +2,19 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
+## Unreleased
+
+A second round of fixes, found by reviewing failure modes and by a new soak test that has several clients upload, delete, move and copy at once:
+
+- **Commits no longer fail when files change underneath them.** With several clients writing, staging a folder could race with another request deleting or replacing a file in it, and the request got a 500 even though its change had saved. Staging now retries a few times, and anything still changing is left for the next commit.
+- **Logins are cheaper and can no longer stall the server.** An argon2 hash was checked on a core request thread for every request. It is now checked off those threads, at most four at a time, and a good login is remembered for five minutes. A wrong password is never remembered, so every guess still pays the full cost.
+- **An empty password or username is rejected at startup** (`DAVLOG_PASSWORD=""` used to let anyone in).
+- **A flapping problem no longer floods your inbox.** A condition that kept crossing a threshold (free disk, say) sent an alert and a recovery every few seconds. A recovery is now sent only for an alert that went out, and a problem that returns within an hour of recovering is held back.
+- **A client that stops reading a download is cut off** after `limits.body_idle_timeout` instead of holding its connection slot forever.
+- **davlog exits if a core part dies.** If the committer, pusher or another background task stopped unexpectedly, the server kept accepting uploads that were never committed. It now exits so the container restarts.
+- **Cherry-picks and reverts in progress** now count as a person working in the repository, like rebases and merges.
+- A failing `accept()` (out of file descriptors) no longer spins.
+
 ## 1.0.0-RC3 - 2026-10-30
 
 Fixes from a review of the code:

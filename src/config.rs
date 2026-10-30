@@ -83,7 +83,8 @@ pub struct LimitsConfig {
     pub max_connections: usize,
     /// How long a client gets to send a request's headers (also bounds idle keep-alive).
     pub header_read_timeout: Duration,
-    /// How long an upload may stall between chunks before it is cut off.
+    /// How long an upload may stall between chunks, or a client may stop reading a
+    /// response, before the connection is cut off.
     pub body_idle_timeout: Duration,
 }
 
@@ -420,6 +421,19 @@ impl Config {
             }
         };
 
+        if raw.auth.username.trim().is_empty() {
+            return invalid("auth.username must not be empty");
+        }
+        match &password {
+            PasswordCheck::Plain(secret) if secret.expose().is_empty() => {
+                return invalid("the auth password must not be empty");
+            }
+            PasswordCheck::Argon2(hash) if hash.trim().is_empty() => {
+                return invalid("auth.password_hash must not be empty");
+            }
+            _ => {}
+        }
+
         let c = raw.commit;
         let d = CommitConfig::default();
         let commit = CommitConfig {
@@ -658,6 +672,30 @@ username = "notes"
         let cfg = parse("[limits]\nmin_free_space = \"0\"\nmax_repo_size = \"0\"").unwrap();
         assert_eq!(cfg.limits.min_free_space, 0);
         assert_eq!(cfg.limits.max_repo_size, None);
+    }
+
+    #[test]
+    fn an_empty_username_or_password_is_rejected() {
+        let empty_pw = |k: &str| (k == "DAVLOG_PASSWORD").then(String::new);
+        let err = Config::parse(BASE, &empty_pw).unwrap_err();
+        assert!(err.to_string().contains("password"), "{err}");
+
+        let err = Config::parse(
+            &BASE.replace("username = \"notes\"", "username = \"\""),
+            &pw_env,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("username"), "{err}");
+
+        let err = Config::parse(&format!("{BASE}\npassword_hash = \"\"\n"), &no_env).unwrap_err();
+        assert!(err.to_string().contains("password"), "{err}");
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("pw");
+        std::fs::write(&file, "\n").unwrap();
+        let toml = format!("{BASE}\npassword_file = \"{}\"\n", file.display());
+        let err = Config::parse(&toml, &no_env).unwrap_err();
+        assert!(err.to_string().contains("password"), "{err}");
     }
 
     #[test]

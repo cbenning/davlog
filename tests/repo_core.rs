@@ -332,3 +332,91 @@ fn only_unreadable_paths_is_an_error_not_a_silent_success() {
     .unwrap();
     assert!(result.is_err(), "{result:?}");
 }
+
+#[test]
+fn every_unfinished_git_operation_counts_as_a_person_working() {
+    let (dir, repo) = temp_repo("main");
+    for (name, is_dir) in [
+        ("rebase-merge", true),
+        ("rebase-apply", true),
+        ("MERGE_HEAD", false),
+        ("CHERRY_PICK_HEAD", false),
+        ("REVERT_HEAD", false),
+        ("sequencer", true),
+    ] {
+        let path = dir.path().join(".git").join(name);
+        if is_dir {
+            std::fs::create_dir(&path).unwrap();
+        } else {
+            std::fs::write(&path, "x").unwrap();
+        }
+        assert_eq!(repo.foreign_state(), ForeignState::RebaseOrMerge, "{name}");
+        if is_dir {
+            std::fs::remove_dir(&path).unwrap();
+        } else {
+            std::fs::remove_file(&path).unwrap();
+        }
+        assert_eq!(repo.foreign_state(), ForeignState::None, "{name} removed");
+    }
+}
+
+/// Other requests change a folder while it is being committed. That is normal under load and
+/// must not make the commit fail: a file that vanishes mid-way is just a delete, and one that
+/// changes mid-read is read again.
+#[test]
+fn committing_a_folder_that_changes_underneath_still_succeeds() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("davlog=warn")
+        .with_test_writer()
+        .try_init();
+    let (dir, repo) = temp_repo("main");
+    for i in 0..30 {
+        write(dir.path(), &format!("d/f{i}.md"), b"start");
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let churn = {
+        let (root, stop) = (dir.path().to_path_buf(), stop.clone());
+        std::thread::spawn(move || {
+            let mut n = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                let path = root.join(format!("d/f{}.md", n % 30));
+                match n % 3 {
+                    0 => {
+                        let _ = std::fs::remove_file(&path);
+                    }
+                    _ => {
+                        // replace atomically, the way uploads do (writing in place would
+                        // truncate a file libgit2 may have mapped, which can kill the process)
+                        let temp = root.join(format!("d/.tmp{n}"));
+                        if std::fs::write(&temp, format!("v{n}")).is_ok() {
+                            let _ = std::fs::rename(&temp, &path);
+                        }
+                    }
+                }
+                n += 1;
+            }
+        })
+    };
+
+    let mut failures = Vec::new();
+    for round in 0..150 {
+        if let Err(e) = repo.commit_paths(&s(&["d"]), &format!("round {round}"), &sig()) {
+            failures.push(format!("{e:#}"));
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    churn.join().unwrap();
+    assert!(
+        failures.is_empty(),
+        "{} commits failed, first: {}",
+        failures.len(),
+        failures[0]
+    );
+
+    // once the churn stops, one more commit makes git match the disk exactly
+    repo.commit_paths(&s(&["d"]), "settle", &sig()).unwrap();
+    assert!(!repo.is_dirty().unwrap());
+}

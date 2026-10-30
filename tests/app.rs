@@ -209,14 +209,22 @@ async fn end_to_end_push_to_bare_remote() {
         .unwrap();
     let remote = git2::Repository::open_bare(&remote_url).unwrap();
     wait_until(|| remote.refname_to_id("refs/heads/main").is_ok()).await;
-    let health: serde_json::Value = client()
-        .get(url(&app, "/healthz"))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    // the remote gets the ref a moment before davlog records the push time
+    let mut health = serde_json::Value::Null;
+    for _ in 0..50 {
+        health = client()
+            .get(url(&app, "/healthz"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if health["last_push_unix"].is_u64() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
     assert!(health["last_push_unix"].is_u64(), "{health}");
     app.shutdown().await.unwrap();
     assert!(n.kinds().is_empty(), "{:?}", n.kinds());
@@ -505,4 +513,41 @@ async fn shutdown_makes_the_final_commit_even_if_a_push_is_stuck() {
     assert!(started_at.elapsed() < std::time::Duration::from_secs(15));
     assert_eq!(head_paths(&repo), vec!["a.md"], "the final commit happened");
     drop(_held); // close the silent connection so the stuck git call can end
+}
+
+#[tokio::test]
+async fn a_healthy_server_reports_no_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let n = RecordingNotifier::new();
+    let app = started(dir.path(), "", &n).await;
+    let quiet = tokio::time::timeout(std::time::Duration::from_millis(2500), app.failure()).await;
+    assert!(quiet.is_err(), "nothing has died: {quiet:?}");
+    app.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_dead_background_task_is_noticed_and_named() {
+    let dir = tempfile::tempdir().unwrap();
+    let n = RecordingNotifier::new();
+    let app = started(dir.path(), "", &n).await;
+    app.abort_task_for_test("git state monitor");
+    let who = tokio::time::timeout(std::time::Duration::from_secs(5), app.failure())
+        .await
+        .expect("the dead task is noticed");
+    assert_eq!(who, "git state monitor");
+    app.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_dead_committer_is_noticed() {
+    let dir = tempfile::tempdir().unwrap();
+    let n = RecordingNotifier::new();
+    let app = started(dir.path(), "", &n).await;
+    // ending the committer's actor stands in for it panicking
+    app.committer().shutdown().await.unwrap();
+    let who = tokio::time::timeout(std::time::Duration::from_secs(5), app.failure())
+        .await
+        .expect("the dead committer is noticed");
+    assert_eq!(who, "committer");
+    let _ = app.shutdown().await;
 }

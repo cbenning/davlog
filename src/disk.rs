@@ -92,10 +92,13 @@ impl DiskGuard {
 
     /// Re-measure every minute until `stop` resolves.
     pub async fn run_refresh(self: Arc<Self>, stop: impl Future<Output = ()>) {
+        tokio::pin!(stop);
         if self.max_repo.is_none() {
+            // nothing to measure, but stay alive until shutdown so the task is not mistaken
+            // for one that died
+            stop.await;
             return;
         }
-        tokio::pin!(stop);
         let mut ticker = tokio::time::interval(REFRESH_EVERY);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         ticker.tick().await; // the first tick is immediate; `new` just measured

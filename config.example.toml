@@ -13,7 +13,7 @@ min_free_space = "100MiB"    # writes that add data get 507 below this much free
 max_repo_size = "0"          # 507 when working tree + .git exceed this; "0" = no cap
 max_connections = 256        # extra connections wait for a slot; 0 = unlimited
 header_read_timeout = "30s"  # a client must finish its headers in this long (also closes idle connections)
-body_idle_timeout = "60s"    # an upload that sends nothing for this long is cut off
+body_idle_timeout = "60s"    # an upload that sends nothing, or a download the client stops reading, for this long is cut off
 
 [auth]
 username = "notes"

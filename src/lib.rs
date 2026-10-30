@@ -7,6 +7,7 @@ pub mod committer;
 pub mod config;
 pub mod davfs;
 pub mod disk;
+pub mod net;
 pub mod notify;
 pub mod pusher;
 pub mod repo;

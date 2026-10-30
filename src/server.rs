@@ -23,10 +23,10 @@ use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tracing::{debug, error, warn};
 
-use crate::auth;
+use crate::auth::Authenticator;
 use crate::brand;
 use crate::committer::Committer;
-use crate::config::{AuthConfig, CommitMode, Config};
+use crate::config::{CommitMode, Config};
 use crate::davfs::GitFs;
 use crate::disk::DiskGuard;
 use crate::repo::{ForeignState, Repo};
@@ -39,7 +39,8 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(30);
 
 struct Ctx {
     handler: DavHandler,
-    auth: AuthConfig,
+    auth: Arc<Authenticator>,
+    failed_login_delay: Duration,
     committer: Committer,
     repo: Repo,
     status: Arc<Status>,
@@ -55,6 +56,7 @@ pub struct Server {
     ctx: Arc<Ctx>,
     max_connections: usize,
     header_read_timeout: Duration,
+    write_timeout: Duration,
 }
 
 impl Server {
@@ -84,7 +86,8 @@ impl Server {
         ));
         let ctx = Arc::new(Ctx {
             handler,
-            auth: cfg.auth.clone(),
+            auth: Arc::new(Authenticator::new(cfg.auth.clone())),
+            failed_login_delay: cfg.auth.failed_login_delay,
             committer,
             repo,
             status,
@@ -99,6 +102,7 @@ impl Server {
             ctx,
             max_connections: cfg.limits.max_connections,
             header_read_timeout: cfg.limits.header_read_timeout,
+            write_timeout: cfg.limits.body_idle_timeout,
         })
     }
 
@@ -132,6 +136,8 @@ impl Server {
                         Ok(pair) => pair,
                         Err(e) => {
                             warn!(error = %e, "accept failed");
+                            // out of file descriptors, say: do not spin while it lasts
+                            tokio::time::sleep(Duration::from_millis(100)).await;
                             continue;
                         }
                     };
@@ -145,6 +151,7 @@ impl Server {
                     http.header_read_timeout(
                         (!self.header_read_timeout.is_zero()).then_some(self.header_read_timeout),
                     );
+                    let stream = crate::net::WriteTimeout::new(stream, self.write_timeout);
                     let conn = http.serve_connection(TokioIo::new(stream), service);
                     let conn = graceful.watch(conn);
                     tokio::spawn(async move {
@@ -385,12 +392,12 @@ async fn route(ctx: &Ctx, peer: SocketAddr, req: Request<Incoming>) -> Response<
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok());
-    if !auth::check(&ctx.auth, authorization) {
+    if !ctx.auth.check(authorization).await {
         if authorization.is_some() {
             // Never log what was typed: a password may have landed in the username field.
             warn!(%peer, "failed login");
-            if !ctx.auth.failed_login_delay.is_zero() {
-                tokio::time::sleep(ctx.auth.failed_login_delay).await;
+            if !ctx.failed_login_delay.is_zero() {
+                tokio::time::sleep(ctx.failed_login_delay).await;
             }
         }
         let mut res = text_response(StatusCode::UNAUTHORIZED, "authentication required\n");

@@ -70,6 +70,11 @@ impl Committer {
         Committer { tx }
     }
 
+    /// False once the actor has stopped, whether it was told to or died.
+    pub fn is_running(&self) -> bool {
+        !self.tx.is_closed()
+    }
+
     /// Report a mutation. Never blocks and never fails the caller.
     pub fn record(&self, change: Change) {
         if self.tx.send(Msg::Change(change, Instant::now())).is_err() {
