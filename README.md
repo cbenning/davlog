@@ -28,29 +28,17 @@ davlog is a WebDAV server that keeps your files in a git repository. Every uploa
 
 ```mermaid
 flowchart LR
-    subgraph clients["Your notes apps (any WebDAV client)"]
-        obsidian["Obsidian<br/>(with a WebDAV sync plugin)"]
-        helix["HelixNotes"]
-        other["rclone, Finder, ..."]
-    end
+    laptop["💻 Laptop<br/>HelixNotes"]
+    phone["📱 Phone<br/>Obsidian"]
+    davlog["<b>davlog</b><br/>every save becomes a git commit"]
+    backup[("☁️ Backup remote<br/>GitHub, a NAS, ...")]
 
-    proxy["HTTPS<br/>(Caddy or any reverse proxy)"]
-
-    subgraph server["davlog"]
-        dav["WebDAV server"]
-        committer["commits every change"]
-    end
-
-    repo[("Git repository<br/>full history, plain git")]
-    remote[("Backup remote<br/>GitHub, a NAS, ...")]
-    mail["Email alerts"]
-
-    obsidian & helix & other -->|WebDAV| proxy --> dav --> committer --> repo
-    repo -. "push on a timer (optional)" .-> remote
-    server -. "if something goes wrong" .-> mail
+    laptop <-->|WebDAV| davlog
+    phone <-->|WebDAV| davlog
+    davlog -->|push on a timer| backup
 ```
 
-Obsidian has no built-in WebDAV sync, so it needs a community plugin for that. davlog has been tested with rclone and the HelixNotes CLI; any client that speaks WebDAV should work.
+Any WebDAV client works. Obsidian has no built-in WebDAV sync, so it needs a community plugin for it. davlog has been tested with rclone and the HelixNotes CLI.
 
 ```
 $ git log --oneline
