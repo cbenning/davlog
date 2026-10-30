@@ -2,7 +2,8 @@ name: Release
 
 # Publishing a GitHub release (including a pre-release) builds the Docker image and pushes it
 # to ghcr.io. Create the release from a commit on main whose Cargo.toml version and
-# CHANGELOG.md heading match the release tag, for example v1.0.0-RC3 and "## 1.0.0-RC3".
+# CHANGELOG.md heading match the release tag exactly, with no "v" prefix: tag 1.0.0-RC3,
+# heading "## 1.0.0-RC3".
 # If the release has no notes, they are filled in from that version's section of CHANGELOG.md.
 on:
   release:
@@ -23,16 +24,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: The tag matches the version in Cargo.toml
         run: |
-          tag="${TAG#v}"
           crate="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
-          if [ "$tag" != "$crate" ]; then
-            echo "release tag $TAG does not match Cargo.toml version $crate" >&2
+          if [ "$TAG" != "$crate" ]; then
+            echo "release tag $TAG does not match the Cargo.toml version $crate (tags have no \"v\" prefix)" >&2
             exit 1
           fi
       - name: CHANGELOG.md has notes for this version
         run: |
-          tag="${TAG#v}"
-          grep -q "^## $tag " CHANGELOG.md || { echo "no '## $tag' section in CHANGELOG.md" >&2; exit 1; }
+          grep -q "^## $TAG " CHANGELOG.md || { echo "no '## $TAG' section in CHANGELOG.md" >&2; exit 1; }
 
   image:
     needs: check
@@ -77,7 +76,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version="${TAG#v}"
+          version="$TAG"
           body="$(gh release view "$TAG" --json body -q .body)"
           if [ -n "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
             echo "the release already has notes; leaving them alone"
