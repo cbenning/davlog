@@ -14,6 +14,8 @@ struct Inner {
     paused: Option<String>,
     foreign: Option<ForeignState>,
     disk_low: bool,
+    commit_failing: bool,
+    push_failing: bool,
 }
 
 #[derive(Default)]
@@ -31,6 +33,36 @@ pub struct StatusSnapshot {
     pub foreign_git_state: bool,
     /// True while writes that add data are refused for lack of space.
     pub disk_low: bool,
+    /// The last commit attempt failed and is being retried.
+    pub commit_failing: bool,
+    /// Pushes have failed several times in a row.
+    pub push_failing: bool,
+}
+
+impl StatusSnapshot {
+    /// What needs attention, in plain words. Empty means everything is fine.
+    pub fn problems(&self) -> Vec<String> {
+        let mut problems = Vec::new();
+        if let Some(why) = &self.push_paused {
+            problems.push(format!("pushing is paused: {why}"));
+        }
+        if self.foreign_git_state {
+            problems.push(
+                "a person has a rebase or merge (or a stale lock) in the repository, so commits and writes are on hold"
+                    .to_string(),
+            );
+        }
+        if self.disk_low {
+            problems.push("the disk is too full for new data".to_string());
+        }
+        if self.commit_failing {
+            problems.push("commits are failing and being retried".to_string());
+        }
+        if self.push_failing {
+            problems.push("pushes are failing".to_string());
+        }
+        problems
+    }
 }
 
 fn unix(t: SystemTime) -> u64 {
@@ -62,6 +94,14 @@ impl Status {
         self.write().foreign = Some(state);
     }
 
+    pub fn set_commit_failing(&self, failing: bool) {
+        self.write().commit_failing = failing;
+    }
+
+    pub fn set_push_failing(&self, failing: bool) {
+        self.write().push_failing = failing;
+    }
+
     pub fn set_disk_low(&self, low: bool) {
         self.write().disk_low = low;
     }
@@ -74,6 +114,8 @@ impl Status {
             push_paused: inner.paused.clone(),
             foreign_git_state: matches!(inner.foreign, Some(s) if s != ForeignState::None),
             disk_low: inner.disk_low,
+            commit_failing: inner.commit_failing,
+            push_failing: inner.push_failing,
         }
     }
 }
@@ -81,6 +123,40 @@ impl Status {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fresh_status_has_no_problems() {
+        assert!(Status::new().snapshot().problems().is_empty());
+    }
+
+    #[test]
+    fn each_problem_is_named_in_plain_words() {
+        let s = Status::new();
+        s.set_paused(Some("the remote branch has diverged".into()));
+        s.set_foreign_state(ForeignState::RebaseOrMerge);
+        s.set_disk_low(true);
+        s.set_commit_failing(true);
+        s.set_push_failing(true);
+        let problems = s.snapshot().problems();
+        assert_eq!(problems.len(), 5, "{problems:?}");
+        let all = problems.join(" | ");
+        for needle in [
+            "pushing is paused",
+            "diverged",
+            "rebase or merge",
+            "disk",
+            "commits are failing",
+            "pushes are failing",
+        ] {
+            assert!(all.contains(needle), "{needle}: {all}");
+        }
+        s.set_paused(None);
+        s.set_foreign_state(ForeignState::None);
+        s.set_disk_low(false);
+        s.set_commit_failing(false);
+        s.set_push_failing(false);
+        assert!(s.snapshot().problems().is_empty());
+    }
 
     #[test]
     fn snapshot_reflects_setters() {
@@ -92,7 +168,9 @@ mod tests {
                 last_push_unix: None,
                 push_paused: None,
                 foreign_git_state: false,
-                disk_low: false
+                disk_low: false,
+                commit_failing: false,
+                push_failing: false
             }
         );
         s.set_paused(Some("diverged".into()));

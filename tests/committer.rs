@@ -140,6 +140,7 @@ async fn commit_failure_sends_alert_and_keeps_running() {
     put(&f, "a.md");
     wait_until(|| f.sink.count() == 1).await;
     assert_eq!(f.sink.kinds(), vec![EventKind::CommitFailed]);
+    assert!(f.status.snapshot().commit_failing);
     set_objects_readonly(f.dir.path(), false);
 
     // the failed change stays pending and is retried
@@ -148,6 +149,10 @@ async fn commit_failure_sends_alert_and_keeps_running() {
     put(&f, "b.md");
     wait_until(|| commit_count(&f.repo) == 2).await;
     assert_eq!(head_paths(&f.repo), vec!["a.md", "b.md"]);
+    assert!(
+        !f.status.snapshot().commit_failing,
+        "cleared once commits work again"
+    );
     assert_eq!(
         f.sink.kinds(),
         vec![

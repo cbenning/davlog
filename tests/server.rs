@@ -847,3 +847,111 @@ async fn a_slow_but_steady_download_is_not_cut_off() {
     }
     assert!(total >= size, "received {total} of {size}");
 }
+
+// ---- /readyz ----
+
+#[tokio::test]
+async fn readyz_is_ok_for_a_healthy_server_and_needs_no_login() {
+    let s = start("").await;
+    let r = client().get(s.url("/readyz")).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let json: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["problems"].as_array().unwrap().len(), 0);
+    let head = client().head(s.url("/readyz")).send().await.unwrap();
+    assert_eq!(head.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn readyz_is_503_and_lists_the_problem_when_pushing_is_paused() {
+    let s = start("").await;
+    s.status
+        .set_paused(Some("the remote branch has diverged".into()));
+    let r = client().get(s.url("/readyz")).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let json: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(json["ok"], false);
+    let text = json["problems"].to_string();
+    assert!(
+        text.contains("pushing is paused") && text.contains("diverged"),
+        "{text}"
+    );
+    // healthz keeps meaning "alive"
+    assert_eq!(
+        client()
+            .get(s.url("/healthz"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+
+    s.status.set_paused(None);
+    assert_eq!(
+        client()
+            .get(s.url("/readyz"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn readyz_sees_a_rebase_in_progress_right_away() {
+    let s = start("").await;
+    let rebase = s.dir.path().join(".git/rebase-merge");
+    std::fs::create_dir(&rebase).unwrap();
+    let r = client().get(s.url("/readyz")).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(r.text().await.unwrap().contains("rebase or merge"));
+    std::fs::remove_dir(&rebase).unwrap();
+    assert_eq!(
+        client()
+            .get(s.url("/readyz"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn readyz_sees_a_full_disk() {
+    let s = start("[limits]\nmin_free_space = \"999TiB\"\n").await;
+    let r = client().get(s.url("/readyz")).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(r.text().await.unwrap().contains("disk"));
+}
+
+#[tokio::test]
+async fn readyz_reports_failing_commits_and_pushes() {
+    let s = start("").await;
+    s.status.set_commit_failing(true);
+    s.status.set_push_failing(true);
+    let r = client().get(s.url("/readyz")).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let text = r.text().await.unwrap();
+    assert!(
+        text.contains("commits are failing") && text.contains("pushes are failing"),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn healthz_now_also_shows_the_failure_flags() {
+    let s = start("").await;
+    let json: serde_json::Value = client()
+        .get(s.url("/healthz"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(json["commit_failing"], false);
+    assert_eq!(json["push_failing"], false);
+}

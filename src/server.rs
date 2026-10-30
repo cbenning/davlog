@@ -256,6 +256,33 @@ impl http_body::Body for IdleTimeout<Incoming> {
     }
 }
 
+/// `/readyz`: 200 when nothing needs attention, 503 with the reasons when something does.
+/// Unlike `/healthz` (is the process alive), this is for monitoring. It needs no login and
+/// shows no file names.
+fn readiness(ctx: &Ctx) -> Response<Body> {
+    let mut snapshot = ctx.status.snapshot();
+    // look at the repository now rather than waiting for the next background check
+    snapshot.foreign_git_state = ctx.repo.foreign_state() != ForeignState::None;
+    snapshot.disk_low = ctx.disk.check().is_err();
+    let mut problems = snapshot.problems();
+    if !ctx.committer.is_running() {
+        problems.push("the committer has stopped".to_string());
+    }
+    let ok = problems.is_empty();
+    let json = serde_json::json!({ "ok": ok, "problems": problems }).to_string();
+    let mut res = Response::new(Body::from(json));
+    *res.status_mut() = if ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    res
+}
+
 fn text_response(status: StatusCode, text: &'static str) -> Response<Body> {
     let mut res = Response::new(Body::from(text));
     *res.status_mut() = status;
@@ -386,6 +413,10 @@ async fn route(ctx: &Ctx, peer: SocketAddr, req: Request<Incoming>) -> Response<
             HeaderValue::from_static("application/json"),
         );
         return res;
+    }
+
+    if req.uri().path() == "/readyz" && matches!(*req.method(), Method::GET | Method::HEAD) {
+        return readiness(ctx);
     }
 
     let authorization = req

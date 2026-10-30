@@ -127,6 +127,7 @@ impl Pusher {
             ));
         }
         if self.consecutive_failures >= FAILURES_BEFORE_ALERT {
+            self.status.set_push_failing(false);
             self.alerts.alert(Event::new(
                 EventKind::Recovered(Box::new(EventKind::PushFailing)),
                 Severity::Recovered,
@@ -182,6 +183,7 @@ impl Pusher {
         self.consecutive_failures += 1;
         warn!(error = %e, failures = self.consecutive_failures, "push failed");
         if self.consecutive_failures >= FAILURES_BEFORE_ALERT {
+            self.status.set_push_failing(true);
             self.alerts.alert(Event::new(
                 EventKind::PushFailing,
                 Severity::Error,

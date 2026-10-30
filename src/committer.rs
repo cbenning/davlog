@@ -266,6 +266,7 @@ impl Actor {
                 self.first_at = None;
                 self.last_at = None;
                 self.blocked_until = None;
+                self.status.set_commit_failing(false);
                 if self.failing {
                     self.failing = false;
                     self.alerts.alert(Event::new(
@@ -280,6 +281,7 @@ impl Actor {
             Err(message) => {
                 error!(error = %message, "commit failed");
                 self.blocked_until = Some(Instant::now() + RETRY_AFTER_FAILURE);
+                self.status.set_commit_failing(true);
                 if !self.failing {
                     self.failing = true;
                     self.alerts.alert(Event::new(

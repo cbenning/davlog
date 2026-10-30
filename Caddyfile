@@ -6,9 +6,11 @@
 {$DAVLOG_DOMAIN:localhost} {
 	header Strict-Transport-Security "max-age=31536000"
 
-	# /healthz is for the container's own health check; do not publish it.
-	@healthz path /healthz
-	respond @healthz 404
+	# /healthz and /readyz are for the container's own checks. They need no login and show
+	# no file names, but there is no reason to publish them. To let an uptime monitor reach
+	# /readyz, delete this block.
+	@internal path /healthz /readyz
+	respond @internal 404
 
 	reverse_proxy davlog:8080
 }

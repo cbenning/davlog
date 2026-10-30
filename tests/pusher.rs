@@ -242,6 +242,7 @@ async fn three_consecutive_failures_alert_with_the_network_hint_then_recover() {
     assert_eq!(f.sink.count(), 0, "no alert before the third failure");
     assert_eq!(f.pusher.tick().await, TickOutcome::Failed);
     assert_eq!(f.sink.kinds(), vec![EventKind::PushFailing]);
+    assert!(f.status.snapshot().push_failing);
     let details = f.sink.events.lock().unwrap()[0].details.clone();
     assert!(details.contains("reach the remote"), "{details}");
 
@@ -249,6 +250,7 @@ async fn three_consecutive_failures_alert_with_the_network_hint_then_recover() {
         .with_repository(|r| r.remote_set_url("origin", &f.cfg.url.clone().unwrap()))
         .unwrap();
     assert_eq!(f.pusher.tick().await, TickOutcome::Pushed);
+    assert!(!f.status.snapshot().push_failing);
     assert_eq!(
         f.sink.kinds().last(),
         Some(&EventKind::Recovered(Box::new(EventKind::PushFailing)))

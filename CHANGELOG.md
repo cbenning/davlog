@@ -2,10 +2,11 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
-## Unreleased
+## 1.0.0-RC4 - 2026-10-30
 
-A second round of fixes, found by reviewing failure modes and by a new soak test that has several clients upload, delete, move and copy at once:
+A new endpoint for monitoring, and a second round of fixes, found by reviewing failure modes and by a new soak test that has several clients upload, delete, move and copy at once:
 
+- **`GET /readyz`** answers 200 when nothing needs attention and 503, with a list of what is wrong, when pushing is paused, a person has a rebase or merge going, the disk is too full, commits or pushes are failing, or the committer has stopped. `/healthz` still only says the process is alive, and now also shows `commit_failing` and `push_failing`. Neither needs a login, and neither shows file names.
 - **Commits no longer fail when files change underneath them.** With several clients writing, staging a folder could race with another request deleting or replacing a file in it, and the request got a 500 even though its change had saved. Staging now retries a few times, and anything still changing is left for the next commit.
 - **Logins are cheaper and can no longer stall the server.** An argon2 hash was checked on a core request thread for every request. It is now checked off those threads, at most four at a time, and a good login is remembered for five minutes. A wrong password is never remembered, so every guess still pays the full cost.
 - **An empty password or username is rejected at startup** (`DAVLOG_PASSWORD=""` used to let anyone in).

@@ -126,7 +126,7 @@ docker compose up -d
 git -C data log --oneline
 ```
 
-The login is `notes` / `notes` (set `DAVLOG_PASSWORD=something-else` to change it). To pin a release instead of `latest`, set `DAVLOG_VERSION=1.0.0-RC3`. To build the image from your checkout, add `-f compose.dev.yaml`: `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
+The login is `notes` / `notes` (set `DAVLOG_PASSWORD=something-else` to change it). To pin a release instead of `latest`, set `DAVLOG_VERSION=1.0.0-RC4`. To build the image from your checkout, add `-f compose.dev.yaml`: `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
 
 ### Connect HelixNotes
 
@@ -166,7 +166,7 @@ sudo -u '#10001' git -C data log --oneline
 A few notes:
 
 - Without `DAVLOG_DOMAIN` it serves `https://localhost` with a certificate from Caddy's own local CA. That's fine for trying out the HTTPS setup. If ports 80 and 443 aren't available to you, set `HTTP_PORT` and `HTTPS_PORT`.
-- Only Caddy publishes ports. davlog itself is reachable only from inside the compose network, runs with a read-only filesystem and no extra Linux capabilities, and the `Caddyfile` hides `/healthz` from the outside.
+- Only Caddy publishes ports. davlog itself is reachable only from inside the compose network, runs with a read-only filesystem and no extra Linux capabilities, and the `Caddyfile` hides `/healthz` and `/readyz` from the outside.
 - Don't expose davlog directly, as `compose.yaml` does on localhost. It speaks plain HTTP with Basic auth, so the password would cross the network unencrypted. Any reverse proxy works (nginx, Traefik, a cloud load balancer). `Caddyfile` is just the shortest example.
 - To use a password hash instead of a password file, make one with `printf '%s' 'a-long-password' | docker compose -f compose.https.yaml run --rm -T davlog hash-password` and put it in `davlog.toml` as `password_hash`.
 - `config.example.toml` documents every setting.
@@ -238,7 +238,9 @@ Secrets can come from files or from `DAVLOG_PASSWORD`, `DAVLOG_SMTP_PASSWORD`, `
 
 - **Git settings come from davlog's config.** The host's system and global git config is ignored. Put what you need under `[git.config]` (for example `"core.autocrlf" = "false"`) and davlog writes it to the repository's config on every start.
 - **Repacking is automatic.** `per_request` mode makes a lot of small commits and loose objects, and libgit2 can't run `git gc`, so davlog packs the repository itself. See [Repository upkeep](#repository-upkeep).
-- `GET /healthz` needs no login. It returns the last commit and push times, whether pushing is paused, and whether someone has a rebase or merge going in the repo. It never lists file names.
+- **Health checks, no login needed, no file names shown:**
+  - `GET /healthz` says the process is alive (always 200 while it is serving). It also returns the last commit and push times and the state flags. The Docker image uses it.
+  - `GET /readyz` is for monitoring. It returns 200 with `{"ok":true,"problems":[]}` when nothing needs attention, and 503 with the reasons when pushing is paused, someone has a rebase or merge going, the disk is too full, commits or pushes are failing, or the committer has stopped. Point an uptime monitor at it to find out when something is wrong.
 - Locking (in memory) is there for macOS Finder and Windows Explorer.
 - Git LFS isn't supported.
 
@@ -251,7 +253,7 @@ Secrets can come from files or from `DAVLOG_PASSWORD`, `DAVLOG_SMTP_PASSWORD`, `
 - **No destructive git operations.** Nothing in davlog rewrites history, force-pushes or prunes. Someone with stolen WebDAV credentials can delete your current files, but can't erase what's already committed.
 - **Limits against abuse.** Per-file size, a free-disk floor, an optional cap on repository size (writes get `507`, deletes still work), a connection limit, a header-read timeout, a cutoff for stalled uploads, `Depth: infinity` refused, and bounds on request and PROPFIND sizes. They're all in `config.example.toml`.
 - **Stored files can't take over the origin.** Every response carries `X-Content-Type-Options: nosniff`, and HTML, XHTML, SVG and XML are served with `Content-Security-Policy: sandbox`, so a page someone stored can't run script against your other files when opened in a browser.
-- **Secrets stay out of logs and debug output**, and `/healthz` only exposes counters and flags.
+- **Secrets stay out of logs and debug output**, and `/healthz` and `/readyz` only expose counters and flags.
 
 ### What to do yourself
 
@@ -286,7 +288,7 @@ What it doesn't do is shrink history. A file you committed and later deleted sta
 - **`LOCK` on a path that doesn't exist** creates the lock but no empty file. The file appears when the client uploads it.
 - **Empty directories** exist on disk, but git doesn't track them, so they don't show up in history.
 - **Deleting a folder** can produce several commits instead of one.
-- **`/healthz` is reserved.** A file named `healthz` at the top of the repository can't be reached over WebDAV.
+- **`/healthz` and `/readyz` are reserved.** Files with those names at the top of the repository can't be reached over WebDAV.
 - **A client-written `.gitignore` can stop files being versioned.** Ignored files are stored and served but not committed, and davlog only logs a warning.
 - **Don't edit files in the data directory by hand while davlog is running.** It commits what it finds, and a file that is rewritten in place while davlog reads it can crash the process. Changes made over WebDAV are always safe, and so is stopping davlog first.
 - **One writer per repository.** There's no clustering or failover. Run one instance per repository.
