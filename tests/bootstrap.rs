@@ -311,3 +311,35 @@ fn abort_is_not_applied() {
     let dir = tempfile::tempdir().unwrap();
     assert!(apply(&cfg(dir.path(), None), Action::Abort).is_err());
 }
+
+/// A remote that accepts the connection and never answers must not hold up starting an
+/// existing repository: the check against the remote is best-effort and time-limited.
+#[test]
+fn an_unresponsive_remote_does_not_hold_up_an_existing_repo() {
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+    setup();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!(
+        "git://127.0.0.1:{}/r.git",
+        listener.local_addr().unwrap().port()
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        while let Ok((stream, _)) = listener.accept() {
+            let _ = tx.send(stream);
+        }
+    });
+    let (dir, repo) = temp_repo("main");
+    commit(&repo, dir.path(), "a.md", "one", "first");
+
+    let started = Instant::now();
+    let situation = inspect(&cfg(dir.path(), Some(&url))).unwrap();
+    assert_eq!(situation, Situation::ExistingRepo);
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    drop(rx); // closes the silent connections so the abandoned fetch ends
+}

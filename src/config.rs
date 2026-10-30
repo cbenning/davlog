@@ -433,6 +433,16 @@ impl Config {
             wait_for_commit: c.wait_for_commit.unwrap_or(d.wait_for_commit),
         };
 
+        if commit.interval.is_zero() {
+            return invalid("commit.interval must be greater than zero");
+        }
+        if commit.author_name.trim().is_empty() {
+            return invalid("commit.author_name must not be empty");
+        }
+        if commit.author_email.trim().is_empty() {
+            return invalid("commit.author_email must not be empty");
+        }
+
         let push = match raw.push {
             Some(p) if p.enabled != Some(false) => Some(build_push(p, env)?),
             _ => None,
@@ -474,6 +484,10 @@ impl Config {
                 from: e.from,
                 to: e.to,
             });
+        }
+
+        if raw.maintenance.interval.is_some_and(|d| d.is_zero()) {
+            return invalid("maintenance.interval must be greater than zero");
         }
 
         Ok(Config {
@@ -545,11 +559,15 @@ fn build_push(p: RawPush, env: Env) -> Result<PushConfig, ConfigError> {
         (None, Some(token)) => PushAuth::Token { token },
         (None, None) => PushAuth::None,
     };
+    let interval = p.interval.unwrap_or(Duration::from_secs(600));
+    if interval.is_zero() {
+        return invalid("push.interval must be greater than zero");
+    }
     Ok(PushConfig {
         remote: p.remote.unwrap_or_else(|| "origin".to_string()),
         url: p.url,
         branch: p.branch.unwrap_or_else(|| "main".to_string()),
-        interval: p.interval.unwrap_or(Duration::from_secs(600)),
+        interval,
         auth,
     })
 }
@@ -640,6 +658,26 @@ username = "notes"
         let cfg = parse("[limits]\nmin_free_space = \"0\"\nmax_repo_size = \"0\"").unwrap();
         assert_eq!(cfg.limits.min_free_space, 0);
         assert_eq!(cfg.limits.max_repo_size, None);
+    }
+
+    #[test]
+    fn zero_intervals_are_rejected() {
+        for (extra, key) in [
+            ("[push]\nurl = \"x\"\ninterval = \"0s\"", "push.interval"),
+            ("[maintenance]\ninterval = \"0s\"", "maintenance.interval"),
+            ("[commit]\ninterval = \"0s\"", "commit.interval"),
+        ] {
+            let err = parse(extra).unwrap_err();
+            assert!(err.to_string().contains(key), "{key}: {err}");
+        }
+    }
+
+    #[test]
+    fn an_empty_commit_author_is_rejected() {
+        let err = parse("[commit]\nauthor_name = \" \"").unwrap_err();
+        assert!(err.to_string().contains("author_name"), "{err}");
+        let err = parse("[commit]\nauthor_email = \"\"").unwrap_err();
+        assert!(err.to_string().contains("author_email"), "{err}");
     }
 
     #[test]

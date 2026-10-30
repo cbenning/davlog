@@ -6,6 +6,7 @@
 use std::cell::RefCell;
 use std::io::{BufRead, Write};
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use git2::build::RepoBuilder;
@@ -113,6 +114,20 @@ fn branch_of(cfg: &Config) -> &str {
     cfg.push.as_ref().map_or("main", |p| p.branch.as_str())
 }
 
+/// How long startup waits for the remote when it only wants to compare histories.
+const REMOTE_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Fetch the remote branch, but give up waiting after `limit`. A fetch that is still
+/// stuck keeps its own thread until libgit2's network timeout ends it.
+fn fetch_within(repo: &Repo, push: &crate::config::PushConfig, limit: Duration) -> bool {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (repo, push) = (repo.clone(), push.clone());
+    std::thread::spawn(move || {
+        let _ = tx.send(repo.fetch_branch(&push).is_ok());
+    });
+    rx.recv_timeout(limit).unwrap_or(false)
+}
+
 /// Look at the directory and the remote and decide whether a question is needed.
 pub fn inspect(cfg: &Config) -> Result<Situation> {
     let path = &cfg.server.repo_path;
@@ -129,8 +144,9 @@ pub fn inspect(cfg: &Config) -> Result<Situation> {
         let url = push.url.as_deref().unwrap_or_default();
         let repo = Repo::open_or_init(path, &push.branch)?;
         repo.ensure_remote(&push.remote, url)?;
-        // An unreachable remote must not stop an existing repository from starting.
-        if repo.fetch_branch(push).is_err() {
+        // An unreachable or unresponsive remote must not hold up starting an existing
+        // repository, so this check is best-effort and gives up after a few seconds.
+        if !fetch_within(&repo, push, REMOTE_CHECK_TIMEOUT) {
             return Ok(Situation::ExistingRepo);
         }
         return repo.with_repository(|r| {

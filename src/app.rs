@@ -25,6 +25,8 @@ use crate::server::Server;
 use crate::status::Status;
 
 const MONITOR_INTERVAL: Duration = Duration::from_secs(2);
+/// How long a background task gets to stop at shutdown, after the final commit.
+const TASK_STOP_GRACE: Duration = Duration::from_secs(5);
 const DISK_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
@@ -86,10 +88,18 @@ impl App {
     pub async fn shutdown(self) -> Result<()> {
         let _ = self.stop.send(true);
         self.server.await.context("server task")??;
-        for task in self.tasks {
-            let _ = task.await;
-        }
+        // Make the final commit before waiting on anything that can be slow: a push stuck on
+        // an unresponsive remote must not delay it, or cost us the chance to make it.
         let committed = self.committer.shutdown().await;
+        for mut task in self.tasks {
+            if tokio::time::timeout(TASK_STOP_GRACE, &mut task)
+                .await
+                .is_err()
+            {
+                warn!("a background task did not stop in time and was abandoned");
+                task.abort();
+            }
+        }
         self.dispatcher.drain().await;
         committed.map_err(|e| anyhow!("final commit failed: {e}"))
     }
@@ -281,7 +291,7 @@ async fn monitor_git_state(
                         EventKind::ForeignGitState,
                         Severity::Warning,
                         "a person has rebase or merge state in the repository",
-                        "While it lasts, commits and pushes are skipped and changes over WebDAV return 503. It clears when the rebase or merge is finished or aborted.",
+                        "While it lasts, commits and pushes are skipped and changes over WebDAV return 503. It clears when the rebase or merge is finished or aborted. If nothing is running, a crashed git command may have left a stale .git/index.lock or rebase directory; remove it.",
                     )),
                     (_, ForeignState::None) => alerts.alert(Event::new(
                         EventKind::Recovered(Box::new(EventKind::ForeignGitState)),

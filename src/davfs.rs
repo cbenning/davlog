@@ -323,6 +323,8 @@ impl DavFileSystem for GitFs {
                 rel,
                 sink: self.sink.clone(),
                 max: self.max_file_size,
+                expected: options.size,
+                written: 0,
                 pos: 0,
                 committed: false,
             }) as Box<dyn DavFile>)
@@ -528,6 +530,9 @@ struct WriteFile {
     rel: String,
     sink: Arc<dyn ChangeSink>,
     max: Option<u64>,
+    /// Bytes the client announced (Content-Length or X-Expected-Entity-Length).
+    expected: Option<u64>,
+    written: u64,
     pos: u64,
     committed: bool,
 }
@@ -552,6 +557,7 @@ impl WriteFile {
         let file = self.file.as_mut().ok_or(FsError::GeneralFailure)?;
         file.write_all(data).await.map_err(|e| io_err(&e))?;
         self.pos = end;
+        self.written += data.len() as u64;
         Ok(())
     }
 }
@@ -613,6 +619,13 @@ impl DavFile for WriteFile {
                 return Ok(());
             }
             let mut file = self.file.take().ok_or(FsError::GeneralFailure)?;
+            // dav-server checks the length only after flush, so a short upload (a chunked
+            // body that ends early) would already have replaced the file. Refuse it here.
+            if self.expected.is_some_and(|n| n != self.written) {
+                drop(file);
+                let _ = tokio::fs::remove_file(&self.temp).await;
+                return Err(FsError::GeneralFailure);
+            }
             file.flush().await.map_err(|e| io_err(&e))?;
             file.sync_all().await.map_err(|e| io_err(&e))?;
             drop(file);

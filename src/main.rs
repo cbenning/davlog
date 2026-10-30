@@ -133,6 +133,9 @@ fn main() -> ExitCode {
         }
     });
 
+    // a git call stuck on an unresponsive remote must not keep the process alive
+    runtime.shutdown_timeout(Duration::from_secs(3));
+
     match outcome {
         Ok(AppExit::Clean) => ExitCode::SUCCESS,
         Ok(AppExit::Aborted) => {

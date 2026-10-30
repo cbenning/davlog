@@ -10,7 +10,7 @@ pub mod auth;
 mod maintenance;
 mod remote;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 
 use git2::{ConfigLevel, IndexAddOption, Oid, Repository, RepositoryInitOptions, Signature};
 pub use maintenance::{MaintenanceLimits, MaintenanceReport};
@@ -138,8 +138,20 @@ impl Repo {
     ) -> Result<Option<Oid>> {
         let repo = self.lock();
         let mut index = repo.index()?;
+        // The repository caches its index. A person using git in this directory (the
+        // repair flow) changes the one on disk, so reload it or this commit would build
+        // on stale content and record their changes as deletions.
+        index.read(true)?;
+        let mut failed = 0;
         for path in paths {
-            stage_path(&repo, &mut index, &self.inner.workdir, path.as_ref())?;
+            if let Err(e) = stage_path(&repo, &mut index, &self.inner.workdir, path.as_ref()) {
+                // One unreadable file must not block every other change from being committed.
+                failed += 1;
+                warn!(path = path.as_ref(), error = %format!("{e:#}"), "skipping a path that could not be staged");
+            }
+        }
+        if failed > 0 && failed == paths.len() {
+            bail!("none of the {failed} changed path(s) could be staged; see the log for why");
         }
         finish_commit(&repo, &mut index, message, author)
     }
@@ -148,6 +160,7 @@ impl Repo {
     pub fn commit_all(&self, message: &str, author: &Signature<'_>) -> Result<Option<Oid>> {
         let repo = self.lock();
         let mut index = repo.index()?;
+        index.read(true)?; // see commit_paths
         index.add_all(["*"], IndexAddOption::DEFAULT, None)?;
         index.update_all(["*"], None)?;
         finish_commit(&repo, &mut index, message, author)

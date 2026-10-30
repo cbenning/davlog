@@ -457,3 +457,52 @@ async fn maintenance_can_be_turned_off() {
     assert!(loose_objects(dir.path()) > 5, "nothing was packed");
     app.shutdown().await.unwrap();
 }
+
+/// A remote that accepts the connection and then never answers. libgit2 would wait for it
+/// for minutes; shutdown must not.
+#[tokio::test]
+async fn shutdown_makes_the_final_commit_even_if_a_push_is_stuck() {
+    use std::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (held_tx, held_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        while let Ok((stream, _)) = listener.accept() {
+            let _ = held_tx.send(stream);
+        }
+    });
+
+    setup();
+    let dir = tempfile::tempdir().unwrap();
+    // an existing repository, so startup does not need the remote to answer
+    let repo = Repo::open_or_init(dir.path(), "main").unwrap();
+    repo.ensure_remote("origin", &format!("git://127.0.0.1:{port}/r.git"))
+        .unwrap();
+    let n = RecordingNotifier::new();
+    let extra = format!(
+        "[commit]\nmode = \"debounce\"\ndebounce = \"1h\"\nmax_wait = \"2h\"\n[push]\nurl = \"git://127.0.0.1:{port}/r.git\"\nbranch = \"main\"\ninterval = \"100ms\"\n"
+    );
+    let app = started(dir.path(), &extra, &n).await;
+    let r = req("PUT", url(&app, "/a.md"))
+        .body("x")
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_success());
+    // wait until the pusher is stuck talking to the silent remote
+    let _held = tokio::task::spawn_blocking(move || {
+        held_rx.recv_timeout(std::time::Duration::from_secs(10))
+    })
+    .await
+    .unwrap()
+    .expect("the pusher connected");
+
+    let started_at = std::time::Instant::now();
+    tokio::time::timeout(std::time::Duration::from_secs(20), app.shutdown())
+        .await
+        .expect("shutdown must not wait for the stuck push")
+        .unwrap();
+    assert!(started_at.elapsed() < std::time::Duration::from_secs(15));
+    assert_eq!(head_paths(&repo), vec!["a.md"], "the final commit happened");
+    drop(_held); // close the silent connection so the stuck git call can end
+}

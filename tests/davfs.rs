@@ -511,3 +511,51 @@ async fn ordinary_dot_git_prefixed_names_still_work() {
         assert!(status.is_success(), "{method} {uri} gave {status}");
     }
 }
+
+/// Clients like macOS Finder send a chunked body plus X-Expected-Entity-Length. If fewer
+/// bytes arrive than announced, the old file must survive and nothing may be recorded.
+#[tokio::test]
+async fn a_short_upload_with_an_expected_length_does_not_replace_the_file() {
+    let e = env(None);
+    put(&e, "/keep.md", b"the original content").await;
+    e.changes.changes.lock().unwrap().clear();
+
+    let body = StreamBody::new(futures_util::stream::iter(vec![Ok::<_, std::io::Error>(
+        Frame::data(Bytes::from_static(b"only ten b")),
+    )]));
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/keep.md")
+        .header("x-expected-entity-length", "100")
+        .body(body)
+        .unwrap();
+    let status = e.handler.handle(req).await.status();
+
+    assert!(!status.is_success(), "{status}");
+    assert_eq!(
+        std::fs::read(e.dir.path().join("keep.md")).unwrap(),
+        b"the original content"
+    );
+    assert!(e.changes.all().is_empty(), "{:?}", e.changes.all());
+    assert_eq!(tmp_entries(&e), 0);
+}
+
+#[tokio::test]
+async fn a_chunked_upload_that_matches_the_expected_length_is_saved() {
+    let e = env(None);
+    let body = StreamBody::new(futures_util::stream::iter(vec![
+        Ok::<_, std::io::Error>(Frame::data(Bytes::from_static(b"hello "))),
+        Ok(Frame::data(Bytes::from_static(b"world"))),
+    ]));
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/ok.md")
+        .header("x-expected-entity-length", "11")
+        .body(body)
+        .unwrap();
+    assert!(e.handler.handle(req).await.status().is_success());
+    assert_eq!(
+        std::fs::read(e.dir.path().join("ok.md")).unwrap(),
+        b"hello world"
+    );
+}

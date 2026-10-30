@@ -122,11 +122,11 @@ impl Repo {
             let _ = std::fs::remove_file(pack_dir.join("multi-pack-index"));
         }
         for (_, path) in &loose {
+            // The two-letter directories are left in place even when empty: removing one
+            // can race with a commit that is writing a new object into it, and fail that
+            // commit. Git leaves empty ones too.
             if std::fs::remove_file(path).is_ok() {
                 report.loose_removed += 1;
-                if let Some(dir) = path.parent() {
-                    let _ = std::fs::remove_dir(dir); // only succeeds if now empty
-                }
             }
         }
         let _ = odb.refresh();

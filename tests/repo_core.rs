@@ -218,3 +218,117 @@ fn crlf_file_roundtrips_byte_identical_when_autocrlf_false() {
     // proves the setting is what made the difference
     assert_eq!(commit_with("true"), b"a\nb\n");
 }
+
+#[test]
+fn legal_but_awkward_linux_filenames_commit() {
+    let names = [
+        "trailing.dot.",
+        "trailing space ",
+        "what?.md",
+        "a:b.md",
+        "back\\slash.md",
+        "CON.md",
+        "aux",
+        "star*.md",
+        "quote\".md",
+        "lt<gt>.md",
+        "pipe|.md",
+        "tab\tname.md",
+        "newline\nname.md",
+        "-leading-dash.md",
+        ".hidden",
+        "dir. /file.md",
+        "GIT~2.md",
+        "\u{1F4DD} emoji.md",
+    ];
+    let mut failed = Vec::new();
+    for name in names {
+        let (dir, repo) = temp_repo("main");
+        write(dir.path(), name, b"x");
+        match repo.commit_paths(&[name.to_string()], "awkward", &sig()) {
+            Ok(Some(_)) => {}
+            other => failed.push(format!("{name:?}: {other:?}")),
+        }
+    }
+    assert!(failed.is_empty(), "libgit2 refused:\n{}", failed.join("\n"));
+}
+
+/// An outside tool (the git CLI, a person repairing the repo) commits through its own
+/// handle. davlog's next commit must build on that, not on its cached index.
+#[test]
+fn a_commit_made_outside_davlog_is_not_undone_by_the_next_davlog_commit() {
+    let (dir, repo) = temp_repo("main");
+    write(dir.path(), "a.md", b"a");
+    repo.commit_paths(&s(&["a.md"]), "a", &sig()).unwrap();
+
+    let outside = git2::Repository::open(dir.path()).unwrap();
+    write(dir.path(), "b.md", b"b");
+    let mut index = outside.index().unwrap();
+    index.add_path(std::path::Path::new("b.md")).unwrap();
+    index.write().unwrap();
+    let tree = outside.find_tree(index.write_tree().unwrap()).unwrap();
+    let parent = outside.head().unwrap().peel_to_commit().unwrap();
+    outside
+        .commit(
+            Some("HEAD"),
+            &sig(),
+            &sig(),
+            "b, made outside",
+            &tree,
+            &[&parent],
+        )
+        .unwrap();
+
+    write(dir.path(), "c.md", b"c");
+    repo.commit_paths(&s(&["c.md"]), "c", &sig()).unwrap();
+    assert_eq!(head_paths(&repo), vec!["a.md", "b.md", "c.md"]);
+    assert!(!repo.is_dirty().unwrap());
+}
+
+#[test]
+fn an_unreadable_file_does_not_block_the_other_paths_in_the_same_commit() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, repo) = temp_repo("main");
+    write(dir.path(), "bad.md", b"secret");
+    write(dir.path(), "good.md", b"fine");
+    std::fs::set_permissions(
+        dir.path().join("bad.md"),
+        std::fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+
+    let oid = repo
+        .commit_paths(&s(&["bad.md", "good.md"]), "mixed", &sig())
+        .unwrap();
+    std::fs::set_permissions(
+        dir.path().join("bad.md"),
+        std::fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+    assert!(oid.is_some(), "the readable file was committed");
+    assert_eq!(head_paths(&repo), vec!["good.md"]);
+
+    // once readable again, a later change to it commits normally
+    repo.commit_paths(&s(&["bad.md"]), "now readable", &sig())
+        .unwrap();
+    assert_eq!(head_paths(&repo), vec!["bad.md", "good.md"]);
+}
+
+#[test]
+fn only_unreadable_paths_is_an_error_not_a_silent_success() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, repo) = temp_repo("main");
+    write(dir.path(), "bad.md", b"secret");
+    std::fs::set_permissions(
+        dir.path().join("bad.md"),
+        std::fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+    let result = repo.commit_paths(&s(&["bad.md"]), "only bad", &sig());
+    std::fs::set_permissions(
+        dir.path().join("bad.md"),
+        std::fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+    assert!(result.is_err(), "{result:?}");
+}

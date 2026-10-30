@@ -2,6 +2,19 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
+## Unreleased
+
+Fixes from a review of the code:
+
+- **A commit made outside davlog is no longer undone.** davlog kept its own copy of git's index and never reloaded it, so after a person used git in the repository (a rebase to fix a diverged remote, say), the next davlog commit could record their changes as deletions. It now reloads the index before every commit.
+- **A short upload no longer replaces the file.** A chunked upload that announced a length (as macOS Finder does) but sent fewer bytes could replace the real file with the partial data before the error was reported. The upload is now refused and the old file kept.
+- **One unreadable file no longer blocks every commit.** A path davlog cannot read is skipped with a warning and the rest of the batch is committed.
+- **Shutdown makes its final commit first.** A push stuck on an unresponsive remote could delay or prevent it. Background tasks now get five seconds to stop afterwards.
+- **Startup no longer waits on an unresponsive remote.** The check against the remote for an existing repository gives up after five seconds.
+- **Repacking no longer fails a commit now and then.** It removed empty object directories that a commit could be writing into.
+- **Zero intervals and an empty commit author are rejected** at startup instead of panicking or hanging.
+- **The alert for a stuck `.git` state** now mentions a stale `index.lock` or rebase directory.
+
 ## 1.0.0-RC2 - 2026-10-29
 
 First release candidate. It has been tested with rclone, the litmus suites and a strict notes-sync client, but not widely used, so please report anything that breaks.
