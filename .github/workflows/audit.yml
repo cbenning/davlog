@@ -1,0 +1,26 @@
+name: Security audit
+
+# Checks Cargo.lock against the RustSec advisory database. It also runs weekly, so a
+# new advisory for an existing dependency is noticed without a code change.
+on:
+  push:
+    branches: [main]
+    paths: ["Cargo.toml", "Cargo.lock"]
+  pull_request:
+    paths: ["Cargo.toml", "Cargo.lock"]
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,9 @@
+/target
+/.superpowers
+/data
+/secrets
+.env
+/davlog.toml
+# working notes, kept locally
+/AGENTS.md
+/docs/
