@@ -224,7 +224,13 @@ Add a `[push]` section and davlog pushes the configured branch every `interval`.
 
 davlog doesn't branch or merge for you. Starting a side branch when the remote diverges was considered and left out for now, because it moves your history somewhere you didn't ask for.
 
-SSH remotes need `ssh_key` and a `known_hosts` file, and unknown or changed host keys are refused. Only plain `known_hosts` entries are understood; hashed `|1|` entries are ignored. HTTPS remotes use `token_file`.
+SSH remotes need `ssh_key` and a `known_hosts` file, and unknown or changed host keys are refused. Only plain `known_hosts` entries are understood; hashed `|1|` entries are ignored. The file must list every host key type the server might present (a server can offer ed25519, ECDSA or RSA), not just one. For GitHub, this writes all three from GitHub's own API:
+
+```sh
+gh api meta --jq '.ssh_keys[]' | sed 's/^/github.com /' > known_hosts
+```
+
+Use a deploy key limited to the one backup repository for `ssh_key`: `ssh-keygen -t ed25519 -N "" -f davlog_ssh_key`, then add the `.pub` file to the repo's deploy keys with write access. HTTPS remotes use `token_file`.
 
 Secrets can come from files or from `DAVLOG_PASSWORD`, `DAVLOG_SMTP_PASSWORD`, `DAVLOG_PUSH_TOKEN` and `DAVLOG_PUSH_SSH_PASSPHRASE`. The environment variables win over files.
 
@@ -283,7 +289,7 @@ What it doesn't do is shrink history. A file you committed and later deleted sta
 - **`/healthz` is reserved.** A file named `healthz` at the top of the repository can't be reached over WebDAV.
 - **A client-written `.gitignore` can stop files being versioned.** Ignored files are stored and served but not committed, and davlog only logs a warning.
 - **One writer per repository.** There's no clustering or failover. Run one instance per repository.
-- **SSH push is only unit-tested.** There was no real SSH server in the test run, so try one push before you rely on it.
+- **SSH push has only been run against GitHub**, with a deploy key. Other SSH servers should work but haven't been tried.
 
 ## Testing
 
