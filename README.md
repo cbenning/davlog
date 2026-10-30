@@ -144,7 +144,7 @@ Sync a vault, change or delete a note, sync again, and look at the history to se
 
 ### Run it for real, with HTTPS
 
-This sets up davlog behind [Caddy](https://caddyserver.com/), which gets and renews a Let's Encrypt certificate for you.
+This sets up davlog behind [Caddy](https://caddyserver.com/), which gets and renews a Let's Encrypt certificate for you. Run it from a checkout of this repository (`git clone https://github.com/cbenning/davlog.git && cd davlog`).
 
 ```sh
 mkdir -p data secrets
