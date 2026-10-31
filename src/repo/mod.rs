@@ -139,9 +139,10 @@ impl Repo {
         let repo = self.lock();
         let mut index = repo.index()?;
         // The repository caches its index. A person using git in this directory (the
-        // repair flow) changes the one on disk, so reload it or this commit would build
+        // repair flow) changes the one on disk, so reload it when it changed (a forced reload
+        // costs about 40 ms in a 5,000-file repo) or this commit would build
         // on stale content and record their changes as deletions.
-        index.read(true)?;
+        index.read(false)?;
         let mut failed = 0;
         for path in paths {
             let path = path.as_ref();

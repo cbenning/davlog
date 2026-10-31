@@ -2,6 +2,14 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
+## 1.0.0-RC5 - 2026-10-31
+
+Two speed fixes, found by measuring request times for the README:
+
+- **Reads and other responses no longer wait 40 ms.** Connections now use `TCP_NODELAY`. Without it, a response sent in two parts (headers, then the body) waited for the client's delayed acknowledgement, so every file download took about 40 ms instead of well under a millisecond.
+- **Commits are about ten times faster in a large repository.** RC3 reloaded the whole index from disk before every commit, which cost about 40 ms with 5,000 files. The index is now reloaded only when the file on disk changed, so a commit made outside davlog is still picked up. A save in a 5,000-file repository commits in about 4 ms.
+- The README has a new Performance section with the measurements.
+
 ## 1.0.0-RC4 - 2026-10-30
 
 A new endpoint for monitoring, and a second round of fixes, found by reviewing failure modes and by a new soak test that has several clients upload, delete, move and copy at once:

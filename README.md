@@ -54,7 +54,7 @@ If you give it a remote, it also pushes there on a timer for an off-site copy. W
 
 - 📝 **Every save is a commit.** Uploads, deletes, moves and copies each become a commit with a readable message like `davlog: update notes/a.md`. History, diffs and undo are normal git.
 - 🧱 **No half-written files.** Uploads go to a temp file and are renamed into place when they finish. A dropped connection leaves nothing behind.
-- ⚡ **Fast enough that you won't notice.** A single-file commit took about 5 ms in a 5,000-file repo. Writes that arrive while a commit is running are committed together.
+- ⚡ **Fast enough that you won't notice.** A save takes about 4 ms to commit in a 5,000-file repo, and a read about 0.15 ms. Writes that arrive while a commit is running are committed together.
 - 🛟 **Safe with your backup remote.** davlog pushes on a timer. It never rebases, merges or force-pushes. If the remote has changes it doesn't know about, it stops pushing and emails you.
 - 📬 **Email alerts.** When something goes wrong you get one email with the git commands to fix it, a reminder once a day while it lasts, and a note when it clears. Other channels can be added.
 - 🤝 **Steps aside when you use git.** If you start a rebase or merge in its repository, writes get a `503` until you finish. Reads keep working.
@@ -136,7 +136,7 @@ docker compose up -d
 git -C data log --oneline
 ```
 
-The login is `notes` / `notes` (set `DAVLOG_PASSWORD=something-else` to change it). To pin a release instead of `latest`, set `DAVLOG_VERSION=1.0.0-RC4`. To build the image from your checkout, add `-f compose.dev.yaml`: `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
+The login is `notes` / `notes` (set `DAVLOG_PASSWORD=something-else` to change it). To pin a release instead of `latest`, set `DAVLOG_VERSION=1.0.0-RC5`. To build the image from your checkout, add `-f compose.dev.yaml`: `docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
 
 ### Connect HelixNotes
 
@@ -225,6 +225,30 @@ An alert goes out once, then at most once per `notify.rate_limit` (24 hours by d
 In the default `per_request` mode, each write is committed as soon as it finishes, and the HTTP response waits for the commit (`wait_for_commit = true`). Writes that arrive while a commit is running are committed together. A commit stages only the paths that changed.
 
 If you'd rather have tidier history, `debounce` waits for a quiet period and `interval` commits on a timer.
+
+## Performance
+
+Measured on a 16-core desktop with a release build, over loopback with plain `curl`, in a repository of 5,000 files of about 2 KB each, using the default `per_request` mode (every write waits for its commit). Your numbers will depend on your disk and CPU, but the shape should hold.
+
+| Request | Median | 99th percentile |
+|---|---|---|
+| Read a file (`GET`) | 0.14 ms | 0.4 ms |
+| List a folder of 100 files (`PROPFIND`, depth 1) | 2.5 ms | 3.8 ms |
+| Create a file and commit it (`PUT`) | 3.0 ms | 5.2 ms |
+| Overwrite a file and commit it (`PUT`) | 4.2 ms | 5.9 ms |
+| Overwrite and commit, 8 clients at once | 15 ms each | 25 ms |
+
+With 8 clients writing at once davlog sustained about 490 commits per second.
+
+| Resource | Measured |
+|---|---|
+| Memory, idle, empty repository | 14 MB resident |
+| Memory after loading 5,000 files | 55 MB |
+| Memory after about 6,400 commits | 85 MB |
+| CPU, idle | about 0 |
+| CPU, under sustained writes | about one core, around 3 ms of CPU per commit |
+
+Memory grows with the size of the repository, because libgit2 caches what it reads. A small notes repository sits near the idle figure: a container holding a few hundred notes showed 4 MiB in `docker stats`, which counts memory differently from resident size.
 
 ## Pushing to a remote (optional)
 

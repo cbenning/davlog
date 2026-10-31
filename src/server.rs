@@ -141,6 +141,9 @@ impl Server {
                             continue;
                         }
                     };
+                    // hyper writes the headers and the body separately: without this, Nagle's
+                    // algorithm plus the client's delayed ACK adds about 40 ms to each response
+                    let _ = stream.set_nodelay(true);
                     let ctx = self.ctx.clone();
                     let service = service_fn(move |req| {
                         let ctx = ctx.clone();
