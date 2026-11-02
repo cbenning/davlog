@@ -2,6 +2,11 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
+## 1.0.0-RC6 - 2026-11-02
+
+- **Overwriting a file keeps its permissions.** A save is written to a temp file and renamed over the original, and the temp file had default permissions, so saving an executable script over WebDAV dropped its execute bit and git recorded a mode change. The replaced file's permissions are now kept.
+- The README is shorter, with fewer long paragraphs.
+
 ## 1.0.0-RC5 - 2026-10-31
 
 Two speed fixes, found by measuring request times for the README:

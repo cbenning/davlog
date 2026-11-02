@@ -629,6 +629,13 @@ impl DavFile for WriteFile {
             file.flush().await.map_err(|e| io_err(&e))?;
             file.sync_all().await.map_err(|e| io_err(&e))?;
             drop(file);
+            // The temp file has default permissions. Keep the replaced file's, so an
+            // executable script stays executable (git records the mode).
+            if let Ok(existing) = tokio::fs::metadata(&self.target).await {
+                if existing.is_file() {
+                    let _ = tokio::fs::set_permissions(&self.temp, existing.permissions()).await;
+                }
+            }
             tokio::fs::rename(&self.temp, &self.target)
                 .await
                 .map_err(|e| io_err(&e))?;
