@@ -2,6 +2,11 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
+## 1.0.0-RC7 - 2026-11-02
+
+- **Memory no longer grows with every commit.** libgit2 kept every tree and commit it read in an in-memory cache, up to 256 MiB. Each commit reads back the trees it has just written, and nothing reads them again, so memory grew by several KB per commit until the process reached the cache limit. A container with a low memory limit was killed for it. These objects are no longer cached. Memory stays flat (a test with 1,600 writes a minute over several hours stays within a few MB of its starting size), and commits and reads are no faster or slower.
+- A new test, `tests/memory.rs`, fails if memory grows with the number of commits.
+
 ## 1.0.0-RC6 - 2026-11-02
 
 - **Overwriting a file keeps its permissions.** A save is written to a temp file and renamed over the original, and the temp file had default permissions, so saving an executable script over WebDAV dropped its execute bit and git recorded a mode change. The replaced file's permissions are now kept.

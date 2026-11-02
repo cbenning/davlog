@@ -39,6 +39,12 @@ pub fn isolate_from_user_git_config() {
         unsafe {
             let _ = git2::opts::set_server_connect_timeout_in_milliseconds(30_000);
             let _ = git2::opts::set_server_timeout_in_milliseconds(120_000);
+            // libgit2 caches the trees and commits it reads (up to 256 MiB). Every commit
+            // reads back the trees it just wrote, and those are never read again, so memory
+            // grew by several KB per commit until the container ran out. Turning the cache
+            // off for them keeps memory flat and costs no measurable time.
+            let _ = git2::opts::set_cache_object_limit(git2::ObjectType::Tree, 0);
+            let _ = git2::opts::set_cache_object_limit(git2::ObjectType::Commit, 0);
         }
     });
 }
