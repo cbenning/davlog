@@ -4,7 +4,7 @@ All notable changes are listed here. Versions follow [Semantic Versioning](https
 
 ## 1.0.0-RC7 - 2026-11-02
 
-- **Memory no longer grows with every commit.** libgit2 kept every tree and commit it read in an in-memory cache, up to 256 MiB. Each commit reads back the trees it has just written, and nothing reads them again, so memory grew by several KB per commit until the process reached the cache limit. A container with a low memory limit was killed for it. These objects are no longer cached. Memory stays flat (a test with 1,600 writes a minute over several hours stays within a few MB of its starting size), and commits and reads are no faster or slower.
+- **Memory no longer grows with every commit.** libgit2 kept every tree and commit it read in an in-memory cache, up to 256 MiB. Each commit reads back the trees it has just written, and nothing reads them again, so memory grew by several KB per commit until the process reached the cache limit. A container with a low memory limit was killed for it. These objects are no longer cached. Memory now stays flat: in a 13-minute test with six clients writing at once, it grew from 4 to 6 MiB over about 4,000 commits, where it used to grow by about 8 KB per commit. Commit and read times are unchanged.
 - A new test, `tests/memory.rs`, fails if memory grows with the number of commits.
 
 ## 1.0.0-RC6 - 2026-11-02
