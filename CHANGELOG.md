@@ -2,9 +2,9 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
-## Unreleased
+## 1.0.0-RC9 - 2026-11-03
 
-- **A repack that runs out of memory is killed in preference to the server.** The repack process now asks the kernel to pick it first when a container hits its memory limit. In a 13-hour soak test with a 2 GB repository in a 256 MiB container, the repack was killed 8 times and the server kept serving, but the server itself had been killed 7 times earlier, when the kernel picked it instead.
+- **A repack that runs out of memory is killed in preference to the server.** The repack process now asks the kernel to pick it first when a container hits its memory limit. Without that the kernel picks the largest process, which can be the server. In a 13-hour soak test with a 2 GB repository in a 256 MiB container, the container restarted 7 times, most likely for this reason.
 - **A deletion could be lost, leaving the file in git forever.** When a folder is deleted, `dav-server` removes its children one by one and drops the ones still in flight if one fails. A dropped request never reached the code that reports the change, although the file had already been removed from disk. The deletion was then never committed, so the file stayed in git (and would come back if the working tree were ever restored from it). Every file system change and its report now run as one task that a dropped request cannot cancel. Found by the soak test failing about 1 run in 60 on CI.
 - **The commit log line says what changed.** `committed update notes/a.md oid=b7bdfcc` replaces `committed oid=<40 hex digits> changes=1`. When several writes are committed together it lists the first five.
 - **The push and repack log lines say what they did.** `pushed 4 commits branch=main`, `packed 9 loose objects into a new pack`, and `repacked everything into one pack (26 objects)`.
