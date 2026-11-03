@@ -425,7 +425,7 @@ async fn maintain_repository(
         }
         wait = cfg.interval;
         let target = repo.clone();
-        let outcome = tokio::task::spawn_blocking(move || target.maintain(&limits)).await;
+        let outcome = tokio::task::spawn_blocking(move || target.maintain_isolated(&limits)).await;
         match outcome {
             Ok(Ok(_)) => {
                 if failing {

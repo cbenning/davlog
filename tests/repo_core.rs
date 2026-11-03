@@ -420,3 +420,34 @@ fn committing_a_folder_that_changes_underneath_still_succeeds() {
     repo.commit_paths(&s(&["d"]), "settle", &sig()).unwrap();
     assert!(!repo.is_dirty().unwrap());
 }
+
+#[test]
+fn an_old_index_lock_left_by_a_dead_process_is_removed() {
+    let (dir, repo) = temp_repo("main");
+    let lock = dir.path().join(".git/index.lock");
+    std::fs::write(&lock, "").unwrap();
+    // a lock that has sat for ten minutes: nothing is going to finish writing it
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+    std::fs::File::options()
+        .write(true)
+        .open(&lock)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    assert_eq!(repo.foreign_state(), ForeignState::None);
+    assert!(!lock.exists(), "the stale lock should have been removed");
+
+    // writes work again
+    write(dir.path(), "a.md", b"hello\n");
+    repo.commit_paths(&["a.md".to_string()], "add a", &sig())
+        .unwrap();
+}
+
+#[test]
+fn a_fresh_index_lock_is_left_alone() {
+    let (dir, repo) = temp_repo("main");
+    let lock = dir.path().join(".git/index.lock");
+    std::fs::write(&lock, "").unwrap();
+    assert_eq!(repo.foreign_state(), ForeignState::IndexLock);
+    assert!(lock.exists());
+}

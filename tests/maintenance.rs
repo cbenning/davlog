@@ -117,10 +117,20 @@ fn packs_loose_objects_without_losing_anything() {
     assert_eq!(all_oids(dir.path()), before_ids, "no object was lost");
     assert_eq!(loose_count(dir.path()), 0);
     assert_eq!(packs(dir.path()).len(), 1);
+    // packing only the loose objects does not search for deltas, so it saves files, not bytes
+    assert!(objects_dir_bytes(dir.path()) < before_bytes + before_bytes / 10);
+    // rewriting everything into one pack does
+    repo.maintain(&MaintenanceLimits {
+        loose_objects: 0,
+        packs: 0,
+    })
+    .unwrap();
+    assert_eq!(packs(dir.path()).len(), 1);
     assert!(
         objects_dir_bytes(dir.path()) < before_bytes,
         "delta compression made it smaller"
     );
+    assert_eq!(all_oids(dir.path()), before_ids, "no object was lost");
     assert_history_readable(dir.path(), 60);
     assert!(!repo.is_dirty().unwrap());
 }
@@ -286,4 +296,69 @@ fn stale_verification_directories_are_cleaned_up() {
     std::fs::write(stale.join("leftover"), "x").unwrap();
     repo.maintain(&LOW).unwrap();
     assert!(!dir.path().join(".git/davlog-tmp/verify-stale").exists());
+}
+
+#[test]
+fn a_run_packs_only_the_loose_objects_and_leaves_existing_packs_alone() {
+    let (dir, repo) = temp_repo("main");
+    commits(&repo, dir.path(), 30);
+    repo.maintain(&LOW).unwrap();
+    let first = packs(dir.path());
+    assert_eq!(first.len(), 1);
+    commits(&repo, dir.path(), 30);
+    let ids = all_oids(dir.path());
+    // packs (1) is not above the limit (5), so this must not rewrite the first pack
+    let report = repo
+        .maintain(&MaintenanceLimits {
+            loose_objects: 10,
+            packs: 5,
+        })
+        .unwrap();
+    assert!(report.ran);
+    let after = packs(dir.path());
+    assert_eq!(after.len(), 2, "a second pack, not one rewritten pack");
+    assert!(after.contains(&first[0]), "the first pack is untouched");
+    assert_eq!(loose_count(dir.path()), 0);
+    assert_eq!(all_oids(dir.path()), ids);
+    assert_history_readable(dir.path(), 60);
+}
+
+#[test]
+fn the_repack_can_run_in_a_child_process() {
+    let (dir, repo) = temp_repo("main");
+    commits(&repo, dir.path(), 40);
+    let ids = all_oids(dir.path());
+    let report = repo
+        .maintain_with_worker(Path::new(env!("CARGO_BIN_EXE_davlog")), &LOW)
+        .unwrap();
+    assert!(report.ran, "{report:?}");
+    assert!(report.loose_removed > 0);
+    assert_eq!(loose_count(dir.path()), 0);
+    assert_eq!(packs(dir.path()).len(), 1);
+    assert_eq!(all_oids(dir.path()), ids, "no object was lost");
+    assert_history_readable(dir.path(), 40);
+    // and the server's own handle can still commit afterwards
+    write(dir.path(), "after.md", b"x\n");
+    repo.commit_paths(&["after.md".to_string()], "after", &sig())
+        .unwrap();
+}
+
+#[test]
+fn a_repack_process_that_is_killed_fails_only_the_repack() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, repo) = temp_repo("main");
+    commits(&repo, dir.path(), 20);
+    let ids = all_oids(dir.path());
+    // stands in for a worker that the kernel killed for using too much memory
+    let fake = dir.path().join(".git/fake-worker.sh");
+    std::fs::write(&fake, "#!/bin/sh\nkill -9 $$\n").unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let err = repo.maintain_with_worker(&fake, &LOW).unwrap_err();
+    let text = format!("{err:#}");
+    assert!(text.contains("killed") && text.contains("memory"), "{text}");
+    assert_eq!(all_oids(dir.path()), ids, "nothing was changed");
+    // the repository keeps working
+    write(dir.path(), "still.md", b"x\n");
+    repo.commit_paths(&["still.md".to_string()], "still", &sig())
+        .unwrap();
 }

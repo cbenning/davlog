@@ -75,8 +75,53 @@ fn hash_password_command() -> ExitCode {
     }
 }
 
+/// `davlog maintain-worker --git-dir <dir> --loose-objects <n> --packs <n>`: repack one
+/// repository and print the result as JSON. The server runs this as a child process.
+fn maintain_worker_command(args: &[String]) -> ExitCode {
+    let mut git_dir = None;
+    let mut loose_objects = None;
+    let mut packs = None;
+    let mut it = args.iter();
+    while let Some(flag) = it.next() {
+        let value = it.next();
+        match (flag.as_str(), value) {
+            ("--git-dir", Some(v)) => git_dir = Some(std::path::PathBuf::from(v)),
+            ("--loose-objects", Some(v)) => loose_objects = v.parse::<usize>().ok(),
+            ("--packs", Some(v)) => packs = v.parse::<usize>().ok(),
+            _ => {}
+        }
+    }
+    let (Some(git_dir), Some(loose_objects), Some(packs)) = (git_dir, loose_objects, packs) else {
+        eprintln!(
+            "usage: {} maintain-worker --git-dir <dir> --loose-objects <n> --packs <n>",
+            brand::NAME
+        );
+        return ExitCode::from(2);
+    };
+    let limits = davlog::repo::MaintenanceLimits {
+        loose_objects,
+        packs,
+    };
+    match davlog::repo::run_maintenance_worker(&git_dir, &limits) {
+        Ok(report) => {
+            println!(
+                "{}",
+                serde_json::to_string(&report).expect("serialise the report")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{e:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("maintain-worker") {
+        return maintain_worker_command(&args[1..]);
+    }
     if args.first().map(String::as_str) == Some("hash-password") {
         return hash_password_command();
     }

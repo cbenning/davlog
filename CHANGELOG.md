@@ -2,6 +2,15 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
+## 1.0.0-RC8 - 2026-11-03
+
+Found by a soak test that wrote about 80,000 commits into a container with 256 MiB of memory:
+
+- **A big repack can no longer kill the server.** Repacking needs memory in proportion to what it packs. In a repository that was large for its memory limit, it ran the whole container out of memory, which restarted, repacked, and ran out again. The repack now runs in a separate process (`davlog maintain-worker`), so running out of memory fails only the repack: the server keeps serving, and you get a "maintenance failed" email.
+- **Most repacks are much smaller.** They pack only the loose objects. Everything is rewritten into one pack only once there are more than `pack_limit` packs.
+- **A crash no longer leaves the server stuck.** If davlog was killed in the middle of a commit, it left `.git/index.lock` behind, and every write then returned 503 until someone deleted the file. A lock older than 5 minutes is now removed (with a warning in the log). A newer one is still treated as a person's git command.
+- Repacking and pushing use less memory: one packing thread, freed memory handed back to the system, and the commit handle refreshed after a repack so it stops holding the replaced packs open.
+
 ## 1.0.0-RC7 - 2026-11-02
 
 - **Memory no longer grows with every commit.** libgit2 kept every tree and commit it read in an in-memory cache, up to 256 MiB. Each commit reads back the trees it has just written, and nothing reads them again, so memory grew by several KB per commit until the process reached the cache limit. A container with a low memory limit was killed for it. These objects are no longer cached. Memory now stays flat: in a 13-minute test with six clients writing at once, it grew from 4 to 6 MiB over about 4,000 commits, where it used to grow by about 8 KB per commit. Commit and read times are unchanged.

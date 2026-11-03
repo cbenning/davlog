@@ -132,7 +132,7 @@ docker compose up -d
 git -C data log --oneline
 ```
 
-Login is `notes` / `notes`; change it with `DAVLOG_PASSWORD`. Pin a release with `DAVLOG_VERSION=1.0.0-RC7`. Build from your checkout by adding `-f compose.dev.yaml` and `--build`.
+Login is `notes` / `notes`; change it with `DAVLOG_PASSWORD`. Pin a release with `DAVLOG_VERSION=1.0.0-RC8`. Build from your checkout by adding `-f compose.dev.yaml` and `--build`.
 
 ### Connect HelixNotes
 
@@ -209,6 +209,7 @@ Exit codes: 0 clean, 1 error, 2 bad usage or config, 10 needs a bootstrap answer
 | An upload is over `max_file_size` (100 MiB) | Returns `413`. |
 | Uncommitted changes at startup | Commits them, unless a rebase or merge is in progress. |
 | Wrong branch with `[push]` configured | Refuses to start. |
+| A stale `.git/index.lock` (davlog was killed mid-commit) | Removes it once it is 5 minutes old. A fresh one is treated as a person's git command and writes get `503`. |
 
 Alerts go out once, then at most once per `notify.rate_limit` (24 hours) while the problem lasts, with a note when it clears. Email is the only channel so far; another takes one `Notifier` implementation and a config section.
 
@@ -289,11 +290,18 @@ HTTPS remotes use `token_file`. Secrets can also come from `DAVLOG_PASSWORD`, `D
 
 ### Repository upkeep
 
-libgit2 can't run `git gc`, so davlog repacks (`[maintenance]`, on by default). Every 6 hours, if there are over 2,000 loose objects or 20 packs, it:
+libgit2 can't run `git gc`, so davlog repacks (`[maintenance]`, on by default). Every 6 hours it checks, and does one of two things:
 
-1. writes all objects into one new pack
+- **More than 2,000 loose objects:** it packs just those into a new pack, which is quick and needs little memory.
+- **More than 20 packs:** it rewrites everything into one pack (and finds deltas, so it also saves space). This needs memory in proportion to the repository.
+
+Either way it:
+
+1. writes the new pack
 2. reads every object back from that pack to check it
-3. only then deletes the loose objects and old packs it replaces
+3. only then deletes the loose objects (and, when consolidating, the old packs) it replaces
+
+It runs in a separate process. If the system kills it for using too much memory, the server carries on, you get a "maintenance failed" email, and nothing was deleted. Give the container more memory, or consolidate less often, if you see that.
 
 It never prunes, leaves packs with a `.keep` file alone, and deletes nothing if a step fails. `git fsck --full` is clean afterwards and plain `git gc` still works.
 

@@ -94,6 +94,7 @@ impl Pusher {
         let pushed = tokio::task::spawn_blocking(move || repo.push_branch(&cfg))
             .await
             .unwrap_or_else(|e| Err(PushError::Other(format!("push task failed: {e}"))));
+        crate::repo::release_free_memory();
 
         match pushed {
             Ok(result @ (PushResult::UpToDate | PushResult::Pushed)) => {

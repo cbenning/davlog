@@ -13,8 +13,19 @@ mod remote;
 use anyhow::{bail, Context, Result};
 
 use git2::{ConfigLevel, IndexAddOption, Oid, Repository, RepositoryInitOptions, Signature};
-pub use maintenance::{MaintenanceLimits, MaintenanceReport};
+pub use maintenance::{run_maintenance_worker, MaintenanceLimits, MaintenanceReport};
 pub use remote::{remote_has_branch, Divergence, PushError, PushResult};
+
+/// Hand memory that libgit2 has freed back to the operating system. Repacking and pushing
+/// run on worker threads whose allocator arenas otherwise keep what they freed, so the
+/// process grew a little with every repack and push.
+pub fn release_free_memory() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: malloc_trim only returns unused heap pages; it is safe to call at any time.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
 use tracing::warn;
 
 use crate::config::GitConfig;
@@ -226,6 +237,7 @@ impl Repo {
             Err(TryLockError::Poisoned(p)) => p.into_inner(),
         };
         let git = &self.inner.gitdir;
+        remove_stale_index_lock(git);
         // Anything a person leaves half-done: a rebase, a merge, a cherry-pick or revert
         // (and the sequencer that drives multi-commit ones).
         if [
@@ -244,6 +256,28 @@ impl Repo {
             ForeignState::IndexLock
         } else {
             ForeignState::None
+        }
+    }
+}
+
+/// How old an `index.lock` must be before it is taken for a leftover. Git holds it for the
+/// moment it takes to write the index, so one that has sat for minutes belongs to a process
+/// that died, for example this one being killed mid-commit.
+const STALE_LOCK_AGE: Duration = Duration::from_secs(300);
+
+fn remove_stale_index_lock(git: &Path) {
+    let lock = git.join("index.lock");
+    let age = std::fs::metadata(&lock)
+        .and_then(|md| md.modified())
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok());
+    if age.is_some_and(|age| age > STALE_LOCK_AGE) {
+        match std::fs::remove_file(&lock) {
+            Ok(()) => warn!(
+                age_secs = age.map_or(0, |a| a.as_secs()),
+                "removed a stale .git/index.lock left by a process that died"
+            ),
+            Err(e) => warn!(error = %e, "could not remove a stale .git/index.lock"),
         }
     }
 }
