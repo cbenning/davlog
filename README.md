@@ -38,7 +38,21 @@ flowchart LR
     davlog -->|push on a timer| backup
 ```
 
-Any notes app that syncs over WebDAV works, for example HelixNotes, or Obsidian with a WebDAV sync plugin. davlog has been tested with rclone and the HelixNotes CLI.
+WebDAV is a common way to sync notes, and many other tools use it too:
+
+- **Notes apps:** Obsidian (with a plugin), Joplin, SiYuan (WebDAV sync is a paid feature), HelixNotes.
+- **Wikis:** TiddlyWiki saves a single-file wiki with a WebDAV `PUT`, so each save is a commit.
+- **Task managers:** Super Productivity (its WebDAV sync is marked experimental).
+- **Office suites:** LibreOffice can open and save documents on a WebDAV share.
+- **Password managers:** KeePass and KeePassXC sync the database file.
+- **Reference managers:** Zotero file sync.
+- **E-readers:** KOReader, Koodo Reader and Moon+ Reader sync progress and notes.
+- **Games:** RetroArch cloud sync backs up saves and save states.
+- **Backup and sync tools:** rclone, Duplicati.
+- **Network drives:** Windows Explorer and macOS Finder can map a WebDAV share. On Linux, mount it with `davfs2`, or with GVfs in Nautilus or Dolphin.
+- ...and many more.
+
+Anything that talks WebDAV should work with davlog. It has been tested with rclone and the HelixNotes CLI.
 
 ```
 $ git log --oneline
