@@ -6,11 +6,9 @@
   <a href="https://github.com/cbenning/davlog/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/cbenning/davlog/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-dea584?logo=rust&logoColor=white">
-  <img alt="Backed by git" src="https://img.shields.io/badge/backed%20by-git-F05032?logo=git&logoColor=white">
   <img alt="WebDAV" src="https://img.shields.io/badge/WebDAV-class%201%20%26%202-4c8bf5">
   <img alt="Docker ready" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
   <img alt="litmus basic, copymove and http suites: 100%" src="https://img.shields.io/badge/litmus-basic%20%C2%B7%20copymove%20%C2%B7%20http%20100%25-brightgreen">
-  <img alt="Status: early days" src="https://img.shields.io/badge/status-early%20days-orange">
 </p>
 
 <p align="center">
