@@ -209,7 +209,6 @@ Exit codes: 0 clean, 1 error, 2 bad usage or config, 10 needs a bootstrap answer
 | An upload is over `max_file_size` (100 MiB) | Returns `413`. |
 | Uncommitted changes at startup | Commits them, unless a rebase or merge is in progress. |
 | Wrong branch with `[push]` configured | Refuses to start. |
-| A stale `.git/index.lock` (davlog was killed mid-commit) | Removes it once it is 5 minutes old. A newer one is treated as a person's git command, and writes get `503`. |
 | A stale `.git/index.lock` (davlog was killed mid-commit) | Removes it once it is 5 minutes old. A fresh one is treated as a person's git command and writes get `503`. |
 
 Alerts go out once, then at most once per `notify.rate_limit` (24 hours) while the problem lasts, with a note when it clears. Email is the only channel so far; another takes one `Notifier` implementation and a config section.
