@@ -5,6 +5,7 @@ All notable changes are listed here. Versions follow [Semantic Versioning](https
 ## Unreleased
 
 - **The commit log line says what changed.** `committed update notes/a.md oid=b7bdfcc` replaces `committed oid=<40 hex digits> changes=1`. When several writes are committed together it lists the first five.
+- **The push and repack log lines say what they did.** `pushed 4 commits branch=main`, `packed 9 loose objects into a new pack`, and `repacked everything into one pack (26 objects)`.
 
 ## 1.0.0-RC8 - 2026-11-03
 

@@ -18,7 +18,8 @@ use crate::config::PushConfig;
 pub enum PushResult {
     /// The remote already has our tip (or there is nothing committed yet).
     UpToDate,
-    Pushed,
+    /// The branch was pushed; this many commits were new to the remote.
+    Pushed(usize),
     /// The remote has commits we do not have. Nothing was sent.
     NonFastForward,
 }
@@ -175,6 +176,7 @@ impl Repo {
         if remote_tip == Some(local) {
             return Ok(PushResult::UpToDate);
         }
+        let new_commits = count_new_commits(&repo, local, remote_tip);
 
         let mut opts = PushOptions::new();
         opts.remote_callbacks(callbacks(cfg, &observed));
@@ -204,7 +206,7 @@ impl Repo {
         }
         // keep the remote-tracking ref in step, as `git push` does
         let _ = repo.reference(&tracking_ref(cfg), local, true, "davlog: push");
-        Ok(PushResult::Pushed)
+        Ok(PushResult::Pushed(new_commits))
     }
 
     /// Update the remote-tracking ref only. The local branch and working tree are untouched.
@@ -252,6 +254,25 @@ impl Repo {
             remote_tip_summary: format!("{} {first_line}", &tip.to_string()[..7]),
         })
     }
+}
+
+/// Commits reachable from `local` that the remote's tip does not already have. If the
+/// remote's tip is not in this repository, that is every commit.
+fn count_new_commits(
+    repo: &git2::Repository,
+    local: git2::Oid,
+    remote_tip: Option<git2::Oid>,
+) -> usize {
+    let Ok(mut walk) = repo.revwalk() else {
+        return 0;
+    };
+    if walk.push(local).is_err() {
+        return 0;
+    }
+    if let Some(tip) = remote_tip {
+        let _ = walk.hide(tip);
+    }
+    walk.count()
 }
 
 #[cfg(test)]

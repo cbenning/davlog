@@ -17,7 +17,10 @@ fn synced_pair() -> (
     let cfg = push_cfg(&url);
     repo.ensure_remote("origin", &url).unwrap();
     commit(&repo, dir.path(), "a.md", "one", "first");
-    assert_eq!(repo.push_branch(&cfg).unwrap(), PushResult::Pushed);
+    assert!(matches!(
+        repo.push_branch(&cfg).unwrap(),
+        PushResult::Pushed(_)
+    ));
     (rdir, url, dir, repo, cfg)
 }
 
@@ -29,7 +32,14 @@ fn push_first_commit_to_empty_remote() {
     commit(&repo, dir.path(), "a.md", "one", "first");
     assert_eq!(
         repo.push_branch(&push_cfg(&url)).unwrap(),
-        PushResult::Pushed
+        PushResult::Pushed(1)
+    );
+    commit(&repo, dir.path(), "a.md", "two", "second");
+    commit(&repo, dir.path(), "a.md", "three", "third");
+    assert_eq!(
+        repo.push_branch(&push_cfg(&url)).unwrap(),
+        PushResult::Pushed(2),
+        "only the commits the remote lacked are counted"
     );
     assert_eq!(remote_tip(&url), Some(local_tip(&repo)));
 }
@@ -44,7 +54,10 @@ fn push_second_time_is_up_to_date() {
 fn push_new_commit_is_pushed() {
     let (_r, url, dir, repo, cfg) = synced_pair();
     commit(&repo, dir.path(), "b.md", "two", "second");
-    assert_eq!(repo.push_branch(&cfg).unwrap(), PushResult::Pushed);
+    assert!(matches!(
+        repo.push_branch(&cfg).unwrap(),
+        PushResult::Pushed(_)
+    ));
     assert_eq!(remote_tip(&url), Some(local_tip(&repo)));
 }
 
@@ -119,7 +132,10 @@ fn local_that_contains_remote_tip_is_a_fast_forward_again() {
     });
     bare.reference("refs/heads/main", ours_parent, true, "operator reset")
         .unwrap();
-    assert_eq!(repo.push_branch(&cfg).unwrap(), PushResult::Pushed);
+    assert!(matches!(
+        repo.push_branch(&cfg).unwrap(),
+        PushResult::Pushed(_)
+    ));
 }
 
 #[test]

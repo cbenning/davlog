@@ -35,6 +35,10 @@ pub struct MaintenanceReport {
     pub packs_before: usize,
     pub loose_removed: usize,
     pub packs_removed: usize,
+    /// True when everything was rewritten into one pack, false when only the loose
+    /// objects were packed.
+    #[serde(default)]
+    pub consolidated: bool,
 }
 
 const PACK_SIDE_FILES: [&str; 5] = [".pack", ".idx", ".rev", ".bitmap", ".mtimes"];
@@ -112,12 +116,17 @@ impl Repo {
     }
 
     fn after_maintenance(&self, report: &MaintenanceReport) {
-        info!(
-            objects = report.objects,
-            loose_removed = report.loose_removed,
-            packs_removed = report.packs_removed,
-            "repacked the repository"
-        );
+        if report.consolidated {
+            info!(
+                packs_removed = report.packs_removed,
+                "repacked everything into one pack ({} objects)", report.objects
+            );
+        } else {
+            info!(
+                "packed {} loose objects into a new pack",
+                report.loose_removed
+            );
+        }
         // The handle that commits use still has the replaced packs open (and their caches)
         // until its object store is refreshed, which it only does when it misses an object.
         if let Ok(shared) = self.lock().odb() {
@@ -237,6 +246,7 @@ fn maintain_gitdir(gitdir: &Path, limits: &MaintenanceLimits) -> Result<Maintena
     }
     let _ = odb.refresh();
     report.ran = true;
+    report.consolidated = consolidate;
     Ok(report)
 }
 

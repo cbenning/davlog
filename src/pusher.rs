@@ -97,14 +97,15 @@ impl Pusher {
         crate::repo::release_free_memory();
 
         match pushed {
-            Ok(result @ (PushResult::UpToDate | PushResult::Pushed)) => {
+            Ok(PushResult::UpToDate) => {
                 self.on_synced();
-                if result == PushResult::Pushed {
-                    info!(branch = %self.cfg.branch, "pushed");
-                    TickOutcome::Pushed
-                } else {
-                    TickOutcome::UpToDate
-                }
+                TickOutcome::UpToDate
+            }
+            Ok(PushResult::Pushed(commits)) => {
+                self.on_synced();
+                let plural = if commits == 1 { "" } else { "s" };
+                info!(branch = %self.cfg.branch, "pushed {commits} commit{plural}");
+                TickOutcome::Pushed
             }
             Ok(PushResult::NonFastForward) => self.on_diverged().await,
             Err(e) => self.on_failure(e),
