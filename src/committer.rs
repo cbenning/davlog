@@ -258,7 +258,8 @@ impl Actor {
         match result {
             Ok(oid) => {
                 if let Some(oid) = oid {
-                    info!(%oid, changes = self.pending.len(), "committed");
+                    let short = &oid.to_string()[..7];
+                    info!(oid = %short, "committed {}", log_summary(&self.pending));
                     self.status.set_last_commit(SystemTime::now());
                 }
                 self.pending.clear();
@@ -309,15 +310,38 @@ fn describe(change: &Change) -> String {
     }
 }
 
+/// One change in the words used for a commit summary: "update a.md", "delete b.md".
+fn one_line(change: &Change) -> String {
+    match change.op {
+        Op::Put => format!("update {}", change.path),
+        Op::Mkcol => format!("mkdir {}", change.path),
+        _ => describe(change),
+    }
+}
+
+/// What a commit contained, for the log: the change itself, or the first few of several.
+fn log_summary(changes: &[Change]) -> String {
+    const SHOWN: usize = 5;
+    match changes {
+        [one] => one_line(one),
+        many => {
+            let shown: Vec<String> = many.iter().take(SHOWN).map(one_line).collect();
+            let more = many.len().saturating_sub(SHOWN);
+            let tail = if more > 0 {
+                format!(", and {more} more")
+            } else {
+                String::new()
+            };
+            format!("{} changes: {}{tail}", many.len(), shown.join("; "))
+        }
+    }
+}
+
 /// Commit message: the template with `{summary}` filled in, then a body listing the
 /// changes when there is more than one (truncated after 50 lines).
 pub fn render_message(template: &str, changes: &[Change]) -> String {
     let summary = match changes {
-        [one] => match one.op {
-            Op::Put => format!("update {}", one.path),
-            Op::Mkcol => format!("mkdir {}", one.path),
-            _ => describe(one),
-        },
+        [one] => one_line(one),
         many => format!("{} changes", many.len()),
     };
     let mut message = template.replace("{summary}", &summary);
@@ -343,6 +367,19 @@ mod tests {
     use crate::change::{Change, Op};
 
     const T: &str = "davlog: {summary}";
+
+    #[test]
+    fn the_log_names_the_changed_file_or_the_first_few() {
+        let one = [Change::new(Op::Put, "notes/a.md".to_string())];
+        assert_eq!(log_summary(&one), "update notes/a.md");
+        let many: Vec<Change> = (0..7)
+            .map(|i| Change::new(Op::Put, format!("f{i}.md")))
+            .collect();
+        assert_eq!(
+            log_summary(&many),
+            "7 changes: update f0.md; update f1.md; update f2.md; update f3.md; update f4.md, and 2 more"
+        );
+    }
 
     #[test]
     fn render_message_single_and_multi() {

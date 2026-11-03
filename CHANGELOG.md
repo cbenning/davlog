@@ -2,6 +2,10 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
+## Unreleased
+
+- **The commit log line says what changed.** `committed update notes/a.md oid=b7bdfcc` replaces `committed oid=<40 hex digits> changes=1`. When several writes are committed together it lists the first five.
+
 ## 1.0.0-RC8 - 2026-11-03
 
 Found by a soak test that wrote about 80,000 commits into a container with 256 MiB of memory:
