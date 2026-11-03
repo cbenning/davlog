@@ -2,9 +2,13 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
-## Unreleased
+## 1.0.0 - 2026-11-03
+
+The first stable release. It is the last release candidate (RC9) plus documentation:
 
 - The README's "Known limits" now explains how much memory a repack needs and what to do when it is killed.
+
+Since RC1 the release candidates were tested with rclone and the HelixNotes CLI, by running it as the real notes backend for HelixNotes, and by a soak test that wrote hundreds of thousands of commits through concurrent clients while killing the server, starting a rebase in its repository, taking the backup remote away and changing it behind davlog's back. That test found, and RC4 to RC9 fixed, memory growth with every commit, a repack that could run the container out of memory in a loop, a stale `index.lock` that blocked writes after a crash, and a deletion that could be lost when a request was abandoned.
 
 ## 1.0.0-RC9 - 2026-11-03
 
