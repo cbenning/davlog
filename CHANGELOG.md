@@ -2,6 +2,10 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
+## Unreleased
+
+- The README's "Known limits" now explains how much memory a repack needs and what to do when it is killed.
+
 ## 1.0.0-RC9 - 2026-11-03
 
 - **A repack that runs out of memory is killed in preference to the server.** The repack process now asks the kernel to pick it first when a container hits its memory limit. Without that the kernel picks the largest process, which can be the server. In a 13-hour soak test with a 2 GB repository in a 256 MiB container, the container restarted 7 times, most likely for this reason.

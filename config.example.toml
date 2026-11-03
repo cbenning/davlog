@@ -35,9 +35,11 @@ author_email = "davlog@localhost"
 message_template = "davlog: {summary}"
 wait_for_commit = true       # per_request mode: respond only after the commit finished
 
-# libgit2 cannot run `git gc`, so davlog packs the repository itself: every `interval` it
-# checks, and if there are more than `loose_object_limit` loose objects or `pack_limit`
-# packs it rewrites everything into one pack. It never deletes an object (see the README).
+# libgit2 cannot run `git gc`, so davlog packs the repository itself, in a separate process.
+# Every `interval` it checks. With more than `loose_object_limit` loose objects it packs just
+# those; with more than `pack_limit` packs it rewrites everything into one pack. It never
+# deletes an object. The work needs memory in proportion to what it packs, so a repository
+# with large files wants a larger container (see "Known limits" in the README).
 [maintenance]
 enabled = true
 interval = "6h"

@@ -323,6 +323,7 @@ It doesn't shrink history. A deleted file, or a secret that was ever uploaded, s
 
 ## Known limits
 
+- **Repacking needs memory in proportion to what it packs.** A normal run packs the loose objects, so it needs roughly the size of the data written since the last run. Consolidating (once there are more than `pack_limit` packs) needs about the size of the whole repository. In a soak test, 256 MiB held until a run had tens of thousands of loose objects (about 100 MB of data), and could not consolidate a 2 GB repository. When a repack is killed for lack of memory the server carries on, you get a "maintenance failed" email, nothing is deleted, and the next run tries again with more to pack. A typical notes repository (megabytes to a few hundred megabytes) is fine at 256 MiB. If you keep large attachments, give the container more memory, run repacks more often (a smaller `interval`), or raise `pack_limit` to consolidate less often. You can also stop davlog and run `git gc` yourself, which has bounded memory settings (`pack.windowMemory`).
 - **No dead properties.** `PROPPATCH` returns 501, so client-set modification times are ignored.
 - **Case and Unicode.** The filesystem is case-sensitive and Unicode isn't normalised.
 - **`LOCK` on a missing path** creates the lock but no file until the client uploads.
