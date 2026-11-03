@@ -162,9 +162,22 @@ impl GitFs {
         }
         Ok(self.tmp_dir.join(uuid::Uuid::new_v4().simple().to_string()))
     }
+}
 
-    fn record(&self, change: Change) {
-        self.sink.record(change);
+/// Run a filesystem change and the `record` call that reports it as one task that keeps
+/// going if the request is abandoned.
+///
+/// A request future can be dropped at any `.await`: `dav-server` drops the child deletions
+/// still in flight when one of them fails, and a client can disconnect. The change itself
+/// has already been handed to the blocking thread pool by then and will complete, but the
+/// code after the `.await` that reports it would never run. The file would be gone from
+/// disk and the change never committed, so git would keep it forever.
+async fn detached<T: Send + 'static>(
+    work: impl std::future::Future<Output = FsResult<T>> + Send + 'static,
+) -> FsResult<T> {
+    match tokio::spawn(work).await {
+        Ok(result) => result,
+        Err(_) => Err(FsError::GeneralFailure),
     }
 }
 
@@ -389,11 +402,15 @@ impl DavFileSystem for GitFs {
                 return Err(FsError::Exists);
             }
             let target = self.resolve(&rel, true).await?;
-            tokio::fs::create_dir(&target)
-                .await
-                .map_err(|e| io_err(&e))?;
-            self.record(Change::new(Op::Mkcol, rel));
-            Ok(())
+            let sink = self.sink.clone();
+            detached(async move {
+                tokio::fs::create_dir(&target)
+                    .await
+                    .map_err(|e| io_err(&e))?;
+                sink.record(Change::new(Op::Mkcol, rel));
+                Ok(())
+            })
+            .await
         }
         .boxed()
     }
@@ -405,11 +422,15 @@ impl DavFileSystem for GitFs {
                 return Err(FsError::Forbidden);
             }
             let target = self.resolve(&rel, true).await?;
-            tokio::fs::remove_dir(&target)
-                .await
-                .map_err(|e| io_err(&e))?;
-            self.record(Change::new(Op::Delete, rel));
-            Ok(())
+            let sink = self.sink.clone();
+            detached(async move {
+                tokio::fs::remove_dir(&target)
+                    .await
+                    .map_err(|e| io_err(&e))?;
+                sink.record(Change::new(Op::Delete, rel));
+                Ok(())
+            })
+            .await
         }
         .boxed()
     }
@@ -418,11 +439,15 @@ impl DavFileSystem for GitFs {
         async move {
             let rel = self.rel(path, true)?;
             let target = self.resolve(&rel, true).await?;
-            tokio::fs::remove_file(&target)
-                .await
-                .map_err(|e| io_err(&e))?;
-            self.record(Change::new(Op::Delete, rel));
-            Ok(())
+            let sink = self.sink.clone();
+            detached(async move {
+                tokio::fs::remove_file(&target)
+                    .await
+                    .map_err(|e| io_err(&e))?;
+                sink.record(Change::new(Op::Delete, rel));
+                Ok(())
+            })
+            .await
         }
         .boxed()
     }
@@ -439,11 +464,15 @@ impl DavFileSystem for GitFs {
             }
             let source = self.resolve(&from_rel, true).await?;
             let dest = self.resolve(&to_rel, true).await?;
-            tokio::fs::rename(&source, &dest)
-                .await
-                .map_err(|e| io_err(&e))?;
-            self.record(Change::with_target(Op::Move, from_rel, to_rel));
-            Ok(())
+            let sink = self.sink.clone();
+            detached(async move {
+                tokio::fs::rename(&source, &dest)
+                    .await
+                    .map_err(|e| io_err(&e))?;
+                sink.record(Change::with_target(Op::Move, from_rel, to_rel));
+                Ok(())
+            })
+            .await
         }
         .boxed()
     }
@@ -464,17 +493,21 @@ impl DavFileSystem for GitFs {
                 return Err(FsError::Forbidden);
             }
             let temp = self.new_temp_path().await?;
-            let result = async {
-                tokio::fs::copy(&source, &temp).await?;
-                tokio::fs::rename(&temp, &dest).await
-            }
-            .await;
-            if let Err(e) = result {
-                let _ = tokio::fs::remove_file(&temp).await;
-                return Err(io_err(&e));
-            }
-            self.record(Change::with_target(Op::Copy, from_rel, to_rel));
-            Ok(())
+            let sink = self.sink.clone();
+            detached(async move {
+                let result = async {
+                    tokio::fs::copy(&source, &temp).await?;
+                    tokio::fs::rename(&temp, &dest).await
+                }
+                .await;
+                if let Err(e) = result {
+                    let _ = tokio::fs::remove_file(&temp).await;
+                    return Err(io_err(&e));
+                }
+                sink.record(Change::with_target(Op::Copy, from_rel, to_rel));
+                Ok(())
+            })
+            .await
         }
         .boxed()
     }
@@ -629,18 +662,24 @@ impl DavFile for WriteFile {
             file.flush().await.map_err(|e| io_err(&e))?;
             file.sync_all().await.map_err(|e| io_err(&e))?;
             drop(file);
-            // The temp file has default permissions. Keep the replaced file's, so an
-            // executable script stays executable (git records the mode).
-            if let Ok(existing) = tokio::fs::metadata(&self.target).await {
-                if existing.is_file() {
-                    let _ = tokio::fs::set_permissions(&self.temp, existing.permissions()).await;
+            let (temp, target, rel) = (self.temp.clone(), self.target.clone(), self.rel.clone());
+            let sink = self.sink.clone();
+            detached(async move {
+                // The temp file has default permissions. Keep the replaced file's, so an
+                // executable script stays executable (git records the mode).
+                if let Ok(existing) = tokio::fs::metadata(&target).await {
+                    if existing.is_file() {
+                        let _ = tokio::fs::set_permissions(&temp, existing.permissions()).await;
+                    }
                 }
-            }
-            tokio::fs::rename(&self.temp, &self.target)
-                .await
-                .map_err(|e| io_err(&e))?;
+                tokio::fs::rename(&temp, &target)
+                    .await
+                    .map_err(|e| io_err(&e))?;
+                sink.record(Change::new(Op::Put, rel));
+                Ok(())
+            })
+            .await?;
             self.committed = true;
-            self.sink.record(Change::new(Op::Put, self.rel.clone()));
             Ok(())
         }
         .boxed()

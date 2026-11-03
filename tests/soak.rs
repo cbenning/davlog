@@ -92,7 +92,10 @@ async fn soak(mode: &str, clients: u64, ops: u64) {
         .unwrap_or(1);
     let ops = ops * scale;
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("davlog=warn")
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "davlog=warn".into()),
+        )
         .with_test_writer()
         .try_init();
     setup();
@@ -192,7 +195,55 @@ async fn soak(mode: &str, clients: u64, ops: u64) {
     app.shutdown().await.unwrap();
 
     let repo = Repo::open_or_init(dir.path(), "main").unwrap();
-    assert!(!repo.is_dirty().unwrap(), "nothing may be left uncommitted");
+    let dirty: Vec<String> = repo.with_repository(|r| {
+        let mut opts = git2::StatusOptions::new();
+        opts.include_untracked(true).recurse_untracked_dirs(true);
+        r.statuses(Some(&mut opts))
+            .unwrap()
+            .iter()
+            .map(|e| format!("{:?} {}", e.status(), e.path().unwrap_or("?")))
+            .collect()
+    });
+    if !dirty.is_empty() {
+        // show how the first path moved through the last commits, newest first
+        let path = dirty[0]
+            .split_once(' ')
+            .map(|(_, p)| p.to_string())
+            .unwrap();
+        let trail: Vec<String> = repo.with_repository(|r| {
+            let mut walk = r.revwalk().unwrap();
+            walk.push_head().unwrap();
+            walk.take(40)
+                .map(|id| {
+                    let c = r.find_commit(id.unwrap()).unwrap();
+                    let has = c
+                        .tree()
+                        .unwrap()
+                        .get_path(std::path::Path::new(&path))
+                        .is_ok();
+                    format!(
+                        "{} {} {}",
+                        &c.id().to_string()[..7],
+                        if has { "HAS " } else { "none" },
+                        c.message().unwrap_or("").lines().next().unwrap_or("")
+                    )
+                })
+                .collect()
+        });
+        let parent = std::path::Path::new(&path).parent().unwrap().to_path_buf();
+        let listing: Vec<String> = std::fs::read_dir(dir.path().join(&parent))
+            .map(|d| {
+                d.flatten()
+                    .map(|e| e.file_name().to_string_lossy().to_string())
+                    .collect()
+            })
+            .unwrap_or_else(|e| vec![format!("cannot list {}: {e}", parent.display())]);
+        panic!(
+            "nothing may be left uncommitted, but these are: {dirty:?}\non disk in {}: {listing:?}\nhistory of {path}, newest first:\n{}",
+            parent.display(),
+            trail.join("\n")
+        );
+    }
     let on_disk = disk_files(dir.path());
     let in_git = head_files(&repo);
     let only_disk: Vec<_> = on_disk

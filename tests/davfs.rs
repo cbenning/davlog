@@ -573,3 +573,32 @@ async fn overwriting_a_file_keeps_its_permissions() {
     let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o755, "the executable bit was lost on overwrite");
 }
+
+/// A request future can be dropped at any await (dav-server drops the child deletions still
+/// in flight when one fails). The file is already gone by then, so the deletion must still
+/// be reported, or git would keep a file that no longer exists on disk. Each task here is
+/// aborted the moment its file disappears, which is as early as a cancel can arrive.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_abandoned_delete_is_still_reported() {
+    use dav_server::davpath::DavPath;
+    use dav_server::fs::DavFileSystem;
+
+    let e = env(None);
+    let fs = GitFs::new(e.dir.path().to_path_buf(), None, e.changes.clone());
+    const FILES: usize = 80;
+    for i in 0..FILES {
+        std::fs::write(e.dir.path().join(format!("f{i}.md")), "x").unwrap();
+    }
+    for i in 0..FILES {
+        let fs = fs.clone();
+        let path = DavPath::new(&format!("/f{i}.md")).unwrap();
+        let task = tokio::spawn(async move { fs.remove_file(&path).await });
+        let file = e.dir.path().join(format!("f{i}.md"));
+        while file.exists() {
+            std::thread::yield_now();
+        }
+        task.abort();
+    }
+    wait_until(|| e.changes.all().len() >= FILES).await;
+    assert_eq!(e.changes.all().len(), FILES, "every deletion is reported");
+}
