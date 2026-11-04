@@ -2,6 +2,10 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
+## Unreleased
+
+- The README's "Known limits" notes that a container close to its memory limit can occasionally have the server killed instead of the repack, and that the restart loses nothing.
+
 ## 1.0.1 - 2026-11-04
 
 Found by running the soak test for 11 hours:
