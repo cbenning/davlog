@@ -192,7 +192,7 @@ pub async fn start(
         }
     }
 
-    commit_dirty_tree(&cfg, &repo, alerts.as_ref()).await;
+    commit_dirty_tree(&cfg.commit, &repo, alerts.as_ref(), "at startup").await;
 
     let committer = Committer::spawn(
         repo.clone(),
@@ -228,6 +228,7 @@ pub async fn start(
         "git state monitor",
         tokio::spawn(monitor_git_state(
             repo.clone(),
+            cfg.commit.clone(),
             status.clone(),
             alerts.clone(),
             stop_rx.clone(),
@@ -281,8 +282,14 @@ pub async fn run(
     Ok(AppExit::Clean)
 }
 
-/// Commit a dirty tree left by a crash, unless a person has git state in `.git`.
-async fn commit_dirty_tree(cfg: &Config, repo: &Repo, alerts: &dyn AlertSink) {
+/// Commit a dirty tree left by a crash, unless a person has git state in `.git`. `when` says
+/// what prompted the look, for the commit message and the log ("at startup", ...).
+async fn commit_dirty_tree(
+    commit: &crate::config::CommitConfig,
+    repo: &Repo,
+    alerts: &dyn AlertSink,
+    when: &str,
+) {
     if repo.foreign_state() != ForeignState::None {
         return;
     }
@@ -290,11 +297,8 @@ async fn commit_dirty_tree(cfg: &Config, repo: &Repo, alerts: &dyn AlertSink) {
     if !dirty {
         return;
     }
-    let (name, email) = (
-        cfg.commit.author_name.clone(),
-        cfg.commit.author_email.clone(),
-    );
-    let message = format!("{}: commit changes found at startup", brand::NAME);
+    let (name, email) = (commit.author_name.clone(), commit.author_email.clone());
+    let message = format!("{}: commit changes found {when}", brand::NAME);
     let repo = repo.clone();
     let result = tokio::task::spawn_blocking(move || {
         let sig = Signature::now(&name, &email)?;
@@ -302,24 +306,25 @@ async fn commit_dirty_tree(cfg: &Config, repo: &Repo, alerts: &dyn AlertSink) {
     })
     .await;
     match result {
-        Ok(Ok(Some(oid))) => info!(%oid, "committed changes found at startup"),
+        Ok(Ok(Some(oid))) => info!(%oid, "committed changes found {when}"),
         Ok(Ok(None)) => {}
         Ok(Err(e)) => {
-            warn!(error = %format!("{e:#}"), "could not commit changes found at startup");
+            warn!(error = %format!("{e:#}"), "could not commit changes found {when}");
             alerts.alert(Event::new(
                 EventKind::CommitFailed,
                 Severity::Error,
-                "could not commit changes found at startup",
+                format!("could not commit changes found {when}"),
                 format!("{e:#}"),
             ));
         }
-        Err(e) => warn!(error = %e, "startup commit task failed"),
+        Err(e) => warn!(error = %e, "commit task for changes found {when} failed"),
     }
 }
 
 /// Watch for a person leaving rebase/merge state or an index.lock in `.git`.
 async fn monitor_git_state(
     repo: Repo,
+    commit: crate::config::CommitConfig,
     status: Arc<Status>,
     alerts: Arc<dyn AlertSink>,
     stop: watch::Receiver<bool>,
@@ -341,12 +346,17 @@ async fn monitor_git_state(
                         "a person has rebase or merge state in the repository",
                         "While it lasts, commits and pushes are skipped and changes over WebDAV return 503. It clears when the rebase or merge is finished or aborted. If nothing is running, a crashed git command may have left a stale .git/index.lock or rebase directory; remove it.",
                     )),
-                    (_, ForeignState::None) => alerts.alert(Event::new(
-                        EventKind::Recovered(Box::new(EventKind::ForeignGitState)),
-                        Severity::Recovered,
-                        "the repository is free again",
-                        "Commits, pushes and writes over WebDAV have resumed.",
-                    )),
+                    (_, ForeignState::None) => {
+                        alerts.alert(Event::new(
+                            EventKind::Recovered(Box::new(EventKind::ForeignGitState)),
+                            Severity::Recovered,
+                            "the repository is free again",
+                            "Commits, pushes and writes over WebDAV have resumed.",
+                        ));
+                        // Changes written while it lasted, or left by a crash that also left
+                        // the lock, were skipped by the startup check and by the committer.
+                        commit_dirty_tree(&commit, &repo, alerts.as_ref(), "after the repository was freed").await;
+                    }
                     _ => {}
                 }
                 last = now;

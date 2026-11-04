@@ -144,7 +144,7 @@ docker compose up -d
 git -C data log --oneline
 ```
 
-Login is `notes` / `notes`; change it with `DAVLOG_PASSWORD`. Pin a release with `DAVLOG_VERSION=1.0.0`. Build from your checkout by adding `-f compose.dev.yaml` and `--build`.
+Login is `notes` / `notes`; change it with `DAVLOG_PASSWORD`. Pin a release with `DAVLOG_VERSION=1.0.1`. Build from your checkout by adding `-f compose.dev.yaml` and `--build`.
 
 ### Connect HelixNotes
 

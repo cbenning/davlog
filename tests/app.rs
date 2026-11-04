@@ -551,3 +551,32 @@ async fn a_dead_committer_is_noticed() {
     assert_eq!(who, "committer");
     let _ = app.shutdown().await;
 }
+
+/// A crash can leave a stale index.lock and files that were written but never committed. The
+/// startup check skips a locked repository, so once the lock clears the server must look again.
+#[tokio::test]
+async fn changes_left_on_disk_are_committed_once_a_lock_clears() {
+    let dir = tempfile::tempdir().unwrap();
+    let n = RecordingNotifier::new();
+    let app = started(dir.path(), "", &n).await;
+    let repo = Repo::open_or_init(dir.path(), "main").unwrap();
+    assert!(head_paths(&repo).is_empty());
+
+    // a lock appears (a crashed git command), and a file is on disk that no commit covers
+    let lock = dir.path().join(".git/index.lock");
+    std::fs::write(&lock, "").unwrap();
+    std::fs::write(dir.path().join("orphan.md"), "written before the crash\n").unwrap();
+    wait_until(|| {
+        n.kinds()
+            .contains(&davlog::notify::EventKind::ForeignGitState)
+    })
+    .await;
+    assert!(
+        head_paths(&repo).is_empty(),
+        "nothing is committed while locked"
+    );
+
+    std::fs::remove_file(&lock).unwrap();
+    wait_until(|| head_paths(&repo) == vec!["orphan.md"]).await;
+    app.shutdown().await.unwrap();
+}

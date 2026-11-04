@@ -84,7 +84,8 @@ impl Repo {
             .maintenance
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        let output = std::process::Command::new(exe)
+        let mut command = std::process::Command::new(exe);
+        command
             .arg("maintain-worker")
             .arg("--git-dir")
             .arg(&self.inner.gitdir)
@@ -92,7 +93,24 @@ impl Repo {
             .arg(limits.loose_objects.to_string())
             .arg("--packs")
             .arg(limits.packs.to_string())
-            .stdin(std::process::Stdio::null())
+            .stdin(std::process::Stdio::null());
+        // Make the child the process the kernel kills first if the container runs out of
+        // memory. This runs between fork and exec, so there is no moment at which the child
+        // looks like the (larger) server. Only async-signal-safe calls are allowed here.
+        #[cfg(target_os = "linux")]
+        // SAFETY: open, write and close are async-signal-safe and touch no shared state.
+        unsafe {
+            use std::os::unix::process::CommandExt;
+            command.pre_exec(|| {
+                let fd = libc::open(c"/proc/self/oom_score_adj".as_ptr(), libc::O_WRONLY);
+                if fd >= 0 {
+                    libc::write(fd, b"1000".as_ptr().cast(), 4);
+                    libc::close(fd);
+                }
+                Ok(())
+            });
+        }
+        let output = command
             .output()
             .with_context(|| format!("start {} for the repack", exe.display()))?;
         if !output.status.success() {

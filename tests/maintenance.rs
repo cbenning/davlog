@@ -362,3 +362,25 @@ fn a_repack_process_that_is_killed_fails_only_the_repack() {
     repo.commit_paths(&["still.md".to_string()], "still", &sig())
         .unwrap();
 }
+
+#[test]
+fn the_repack_process_starts_as_the_preferred_out_of_memory_victim() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, repo) = temp_repo("main");
+    commits(&repo, dir.path(), 5);
+    // stands in for the worker: records the score it was started with, then reports success
+    let seen = dir.path().join(".git/seen-oom-score");
+    let fake = dir.path().join(".git/fake-worker.sh");
+    std::fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\ncat /proc/self/oom_score_adj > '{}'\necho '{{\"ran\":false,\"objects\":0,\"loose_before\":0,\"packs_before\":0,\"loose_removed\":0,\"packs_removed\":0,\"consolidated\":false}}'\n",
+            seen.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    repo.maintain_with_worker(&fake, &LOW).unwrap();
+    let score = std::fs::read_to_string(&seen).unwrap();
+    assert_eq!(score.trim(), "1000", "set before the program started");
+}

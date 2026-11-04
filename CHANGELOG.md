@@ -2,6 +2,13 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org/); while the major version is 0, anything may change.
 
+## 1.0.1 - 2026-11-04
+
+Found by running the soak test for 11 hours:
+
+- **Changes written just before a crash are committed once a stale lock clears.** If davlog was killed while a request was in flight, the file could be on disk but not committed, and the stale `.git/index.lock` the kill left behind made the startup check skip it. After the lock was removed nothing looked again, so the file stayed uncommitted until a later write happened to touch it (35 minutes in the soak test). Whenever the repository stops being blocked, any uncommitted changes are now committed.
+- **The repack process is the preferred out-of-memory victim from its first instruction.** 1.0.0 set this after the process started, which left a brief window after the fork in which the kernel could pick the server instead. It is now set before the program starts.
+
 ## 1.0.0 - 2026-11-03
 
 The first stable release. It is the last release candidate (RC9) plus documentation:
