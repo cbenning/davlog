@@ -4,6 +4,7 @@ All notable changes are listed here. Versions follow [Semantic Versioning](https
 
 ## Unreleased
 
+- The README describes the 43-hour soak test and what it found.
 - The README's "Known limits" notes that a container close to its memory limit can occasionally have the server killed instead of the repack, and that the restart loses nothing.
 
 ## 1.0.1 - 2026-11-04

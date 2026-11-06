@@ -340,6 +340,19 @@ It doesn't shrink history. A deleted file, or a secret that was ever uploaded, s
 - **litmus 0.13:** `basic` 16/16, `copymove` 13/13, `http` 4/4, `locks` 38/41, `props` 11/14. Every failure is a `PROPPATCH` answered with 501.
 - **HelixNotes' CLI** (strict about ETags): two vaults synced with edits and deletes both ways. It caught PROPFIND returning `getetag` without quotes, which davlog now fixes. Nothing in davlog depends on HelixNotes.
 
+### Soak test
+
+davlog 1.0.1 ran for 43 hours under constant load, then was shut down. The test setup isn't part of this repository.
+
+- **Setup:** one Docker container limited to 256 MiB, pushing to a backup remote every 5 minutes and repacking every 30.
+- **Load:** 6 writers and 2 readers, with random timing, bursts and quiet spells. They uploaded, overwrote, deleted, moved, copied and listed files, abandoned uploads half way, sent the odd multi-megabyte file, and all fought over the same 8 files.
+- **Size:** 923,000 commits and about 3.8 million requests. The repository grew to 21 GB.
+- **Checks:** every 5 minutes the load paused. The test confirmed nothing was left uncommitted, downloaded every file and compared it with what had been written. It ran `git fsck` every hour.
+- **Faults:** every 3 hours or so it killed the server with `kill -9`, started a rebase in the repository, took the backup remote away for 20 minutes, or changed the remote behind davlog's back. There were 11 faults, each followed by the same checks, and davlog recovered from all of them.
+- **Result:** no file with the wrong content, nothing left uncommitted, no `git fsck` failures.
+- **Bugs it found, all fixed:** memory growing with every commit (1.0.0-RC7), a repack that could run the container out of memory in a loop and a stale `index.lock` that blocked writes after a crash (RC8), a deletion lost when a request was abandoned (RC9), and files left uncommitted after a crash (1.0.1).
+- **What it showed about limits:** with a 21 GB repository in 256 MiB, the repack was killed for lack of memory every time, and the server itself was restarted about every 4 hours. Nothing was lost, but see [Known limits](#known-limits) for the memory a repack needs.
+
 ## Built with
 
 Rust, `tokio` and `hyper`, the [`dav-server`](https://crates.io/crates/dav-server) crate for WebDAV, and [`git2`](https://crates.io/crates/git2) (libgit2) for all git work. davlog never runs the `git` binary.
