@@ -62,6 +62,18 @@ b81d0e4 davlog: move drafts/idea.md -> projects/idea.md
 
 If you give it a remote, it also pushes there on a timer for an off-site copy. When something goes wrong it emails you.
 
+## Contents
+
+- [Highlights](#highlights) and [why this exists](#why-this-exists)
+- [Quick start](#quick-start): [a normal folder](#keep-the-files-in-a-normal-folder), [HelixNotes](#connect-helixnotes), [HTTPS](#run-it-for-real-with-https), [without Docker](#without-docker), [first start](#first-start)
+- [When things go wrong](#when-things-go-wrong) and [how commits work](#how-commits-work)
+- [Performance](#performance) and [reliability](#reliability)
+- [Pushing to a remote](#pushing-to-a-remote-optional)
+- [Other things worth knowing](#other-things-worth-knowing)
+- [Security and hardening](#security-and-hardening) and [repository upkeep](#repository-upkeep)
+- [Known limits](#known-limits)
+- [Testing](#testing)
+
 ## Highlights
 
 - 📝 **Every save is a commit.** Uploads, deletes, moves and copies each become a commit with a readable message like `davlog: update notes/a.md`. History, diffs and undo are normal git.
@@ -246,6 +258,17 @@ A release build on a 16-core desktop, over loopback, in a 5,000-file repository 
 - Memory: 14 MB idle, 55 MB with 5,000 files, 85 MB after about 6,400 commits.
 - CPU: about zero idle, about one core under sustained writes.
 
+## Reliability
+
+davlog 1.0.1 ran for 43 hours under constant load in a container limited to 256 MiB, pushing to a backup remote every 5 minutes.
+
+- **Load:** 6 writers and 2 readers with random timing, abandoned uploads, big files, and every writer fighting over the same files.
+- **Size:** 923,000 commits, about 3.8 million requests, a 21 GB repository.
+- **Checks:** every 5 minutes, nothing uncommitted and every file matching what was written. `git fsck` every hour.
+- **Faults:** 11 in all, including `kill -9`, a rebase started in the repository, the backup remote gone for 20 minutes, and the remote changed behind davlog's back. It recovered from each.
+- **Result:** no wrong content, nothing left uncommitted, no `fsck` failures. The test found five bugs, all fixed by 1.0.1 (see the [CHANGELOG](CHANGELOG.md)).
+- **Limit:** at that size the repack was often killed for lack of memory, and the server restarted about every 4 hours. Nothing was lost. See [Known limits](#known-limits).
+
 ## Pushing to a remote (optional)
 
 Add a `[push]` section and davlog pushes the branch every `interval`. Leave it out and it keeps only the local repository.
@@ -268,10 +291,7 @@ HTTPS remotes use `token_file`. Secrets can also come from `DAVLOG_PASSWORD`, `D
 ## Other things worth knowing
 
 - **Git settings come from davlog's config.** The host's git config is ignored. Put settings under `[git.config]`, for example `"core.autocrlf" = "false"`.
-- **Repacking is automatic.** libgit2 can't run `git gc`, so davlog packs the repository itself. See [Repository upkeep](#repository-upkeep).
-- **`GET /healthz`** says the process is alive, with last commit and push times and state flags. The Docker image uses it.
-- **`GET /readyz`** returns 200, or 503 with a list of problems (pushing paused, rebase in progress, disk full, commits or pushes failing). Point an uptime monitor at it.
-- Neither endpoint needs a login or shows file names.
+- **`GET /healthz`** says the process is alive, with last commit and push times. The Docker image uses it. **`GET /readyz`** returns 200, or 503 with a list of problems (pushing paused, rebase in progress, disk full, commits or pushes failing): point an uptime monitor at it. Neither needs a login or shows file names.
 - Locking (in memory) is there for macOS Finder and Windows Explorer.
 - Git LFS isn't supported.
 
@@ -289,39 +309,31 @@ HTTPS remotes use `token_file`. Secrets can also come from `DAVLOG_PASSWORD`, `D
 ### What to do yourself
 
 - **Use HTTPS.** `compose.https.yaml` is a working setup.
-- **Keep it off the open internet** if you can. Tailscale, WireGuard or an IP allowlist removes most of the risk.
+- **Keep it off the open internet** if you can: Tailscale, WireGuard or an IP allowlist.
 - **Use a long random password**, or an argon2 hash.
-- **Rate-limit logins at your proxy.** Each failure logs `failed login peer=<address>` for fail2ban. Behind a proxy that address is the proxy's. `auth.failed_login_delay` is an off-by-default extra; it holds connections open while it waits.
-- **Prefer secret files to environment variables**, since `docker inspect` shows the environment. Make config files with secrets `chmod 600`.
-- **Give the push credential minimal access:** a deploy key or fine-grained token for the one backup repository.
-- **Keep the container locked down.** The compose file already uses a non-root user, read-only filesystem, no capabilities and `no-new-privileges`. Consider `mem_limit` and `pids_limit` (examples in `compose.https.yaml`).
+- **Rate-limit logins at your proxy.** Failures log `failed login peer=<address>` for fail2ban (behind a proxy that is the proxy's address). `auth.failed_login_delay` is an off-by-default extra.
+- **Prefer secret files to environment variables**, since `docker inspect` shows the environment.
+- **Give the push credential minimal access:** a deploy key or token for the one backup repository.
+- **Keep the container locked down.** The compose file uses a non-root user, a read-only filesystem and no capabilities. Consider `mem_limit` and `pids_limit`.
 - **Watch the disk.** History only grows. The `507` limits stop a full disk and send an alert.
 - **Back up the volume, not just the remote.**
-- **Keep it updated.** Rebuild the image now and then. The repo uses Dependabot, pinned base images and a weekly `cargo audit`, which currently shows one "unsound" warning on the `lru` crate via `dav-server`, with no fix yet.
-- **Be careful cloning the repository elsewhere.** Anyone with the WebDAV password wrote its contents, so don't run scripts or hooks from it unread.
+- **Keep it updated.** Dependabot, pinned base images and a weekly `cargo audit` help. The audit currently shows one "unsound" warning on `lru` (via `dav-server`) with no fix yet.
+- **Be careful cloning the repository elsewhere.** Anyone with the WebDAV password wrote its contents, so don't run its hooks or scripts unread.
 
 ### Repository upkeep
 
-libgit2 can't run `git gc`, so davlog repacks (`[maintenance]`, on by default). Every 6 hours it checks, and does one of two things:
+libgit2 can't run `git gc`, so davlog repacks (`[maintenance]`, on by default). Every 6 hours it checks, and:
 
-- **More than 2,000 loose objects:** it packs just those into a new pack, which is quick and needs little memory.
-- **More than 20 packs:** it rewrites everything into one pack (and finds deltas, so it also saves space). This needs memory in proportion to the repository.
+- **More than 2,000 loose objects:** packs just those into a new pack. Quick, and little memory.
+- **More than 20 packs:** rewrites everything into one pack, which also saves space. Needs memory in proportion to the repository.
 
-Either way it:
+Each run writes the new pack, reads every object back to check it, and only then deletes what it replaces. It runs as a separate process, so if the system kills it for memory the server carries on and you get a "maintenance failed" email. It never prunes, and `git fsck` and `git gc` still work afterwards.
 
-1. writes the new pack
-2. reads every object back from that pack to check it
-3. only then deletes the loose objects (and, when consolidating, the old packs) it replaces
-
-It runs in a separate process. If the system kills it for using too much memory, the server carries on, you get a "maintenance failed" email, and nothing was deleted. Give the container more memory, or consolidate less often, if you see that.
-
-It never prunes, leaves packs with a `.keep` file alone, and deletes nothing if a step fails. `git fsck --full` is clean afterwards and plain `git gc` still works.
-
-It doesn't shrink history. A deleted file, or a secret that was ever uploaded, stays in the repository. To remove one, stop davlog, run `git filter-repo`, and start it again.
+It doesn't shrink history: a deleted file, or a secret that was ever uploaded, stays in the repository. To remove one, stop davlog and run `git filter-repo`.
 
 ## Known limits
 
-- **Repacking needs memory in proportion to what it packs.** A normal run packs the loose objects, so it needs roughly the size of the data written since the last run. Consolidating (once there are more than `pack_limit` packs) needs about the size of the whole repository. In a soak test, 256 MiB held until a run had tens of thousands of loose objects (about 100 MB of data), and could not consolidate a 2 GB repository. When a repack is killed for lack of memory the server carries on, you get a "maintenance failed" email, nothing is deleted, and the next run tries again with more to pack. A typical notes repository (megabytes to a few hundred megabytes) is fine at 256 MiB. If you keep large attachments, give the container more memory, run repacks more often (a smaller `interval`), or raise `pack_limit` to consolidate less often. You can also stop davlog and run `git gc` yourself, which has bounded memory settings (`pack.windowMemory`). In a container that is also close to its limit, the kernel can occasionally kill the server instead of the repack (it happened 4 times in 14 hours in a soak test with a 2 GB repository in 256 MiB). The restart policy brings it back within seconds, and nothing is lost: anything written but not yet committed is committed on startup.
+- **Repacking needs memory.** A normal run needs about the size of the data written since the last run. Consolidating (above `pack_limit` packs) needs about the size of the whole repository. 256 MiB was enough for a typical notes repository, but not for a 2 GB one. If a repack is killed, the server carries on, you get a "maintenance failed" email and nothing is deleted. With large attachments, give the container more memory, repack more often (a smaller `interval`) or raise `pack_limit`. Near its limit the kernel can occasionally kill the server instead (4 times in 14 hours with 2 GB in 256 MiB). The restart takes seconds and loses nothing.
 - **No dead properties.** `PROPPATCH` returns 501, so client-set modification times are ignored.
 - **Case and Unicode.** The filesystem is case-sensitive and Unicode isn't normalised.
 - **`LOCK` on a missing path** creates the lock but no file until the client uploads.
@@ -338,20 +350,7 @@ It doesn't shrink history. A deleted file, or a secret that was ever uploaded, s
 - `cargo test` runs unit and integration tests, including a local bare repository standing in for the remote.
 - `scripts/smoke.sh` syncs a tree up and down with rclone and checks the commits. It also runs litmus and cadaver if installed.
 - **litmus 0.13:** `basic` 16/16, `copymove` 13/13, `http` 4/4, `locks` 38/41, `props` 11/14. Every failure is a `PROPPATCH` answered with 501.
-- **HelixNotes' CLI** (strict about ETags): two vaults synced with edits and deletes both ways. It caught PROPFIND returning `getetag` without quotes, which davlog now fixes. Nothing in davlog depends on HelixNotes.
-
-### Soak test
-
-davlog 1.0.1 ran for 43 hours under constant load, then was shut down. The test setup isn't part of this repository.
-
-- **Setup:** one Docker container limited to 256 MiB, pushing to a backup remote every 5 minutes and repacking every 30.
-- **Load:** 6 writers and 2 readers, with random timing, bursts and quiet spells. They uploaded, overwrote, deleted, moved, copied and listed files, abandoned uploads half way, sent the odd multi-megabyte file, and all fought over the same 8 files.
-- **Size:** 923,000 commits and about 3.8 million requests. The repository grew to 21 GB.
-- **Checks:** every 5 minutes the load paused. The test confirmed nothing was left uncommitted, downloaded every file and compared it with what had been written. It ran `git fsck` every hour.
-- **Faults:** every 3 hours or so it killed the server with `kill -9`, started a rebase in the repository, took the backup remote away for 20 minutes, or changed the remote behind davlog's back. There were 11 faults, each followed by the same checks, and davlog recovered from all of them.
-- **Result:** no file with the wrong content, nothing left uncommitted, no `git fsck` failures.
-- **Bugs it found, all fixed:** memory growing with every commit (1.0.0-RC7), a repack that could run the container out of memory in a loop and a stale `index.lock` that blocked writes after a crash (RC8), a deletion lost when a request was abandoned (RC9), and files left uncommitted after a crash (1.0.1).
-- **What it showed about limits:** with a 21 GB repository in 256 MiB, the repack was often killed for lack of memory, and the server itself was restarted about every 4 hours. Nothing was lost, but see [Known limits](#known-limits) for the memory a repack needs.
+- **HelixNotes' CLI** (strict about ETags) syncing two vaults both ways. It caught PROPFIND returning `getetag` without quotes, which davlog now fixes.
 
 ## Built with
 
