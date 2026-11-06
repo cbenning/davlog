@@ -351,7 +351,7 @@ davlog 1.0.1 ran for 43 hours under constant load, then was shut down. The test 
 - **Faults:** every 3 hours or so it killed the server with `kill -9`, started a rebase in the repository, took the backup remote away for 20 minutes, or changed the remote behind davlog's back. There were 11 faults, each followed by the same checks, and davlog recovered from all of them.
 - **Result:** no file with the wrong content, nothing left uncommitted, no `git fsck` failures.
 - **Bugs it found, all fixed:** memory growing with every commit (1.0.0-RC7), a repack that could run the container out of memory in a loop and a stale `index.lock` that blocked writes after a crash (RC8), a deletion lost when a request was abandoned (RC9), and files left uncommitted after a crash (1.0.1).
-- **What it showed about limits:** with a 21 GB repository in 256 MiB, the repack was killed for lack of memory every time, and the server itself was restarted about every 4 hours. Nothing was lost, but see [Known limits](#known-limits) for the memory a repack needs.
+- **What it showed about limits:** with a 21 GB repository in 256 MiB, the repack was often killed for lack of memory, and the server itself was restarted about every 4 hours. Nothing was lost, but see [Known limits](#known-limits) for the memory a repack needs.
 
 ## Built with
 
