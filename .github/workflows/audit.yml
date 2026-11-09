@@ -12,9 +12,12 @@ on:
     - cron: "17 5 * * 1"
   workflow_dispatch:
 
+# issues: write lets the weekly run open an issue for an advisory, which is how a new one
+# gets noticed.
 permissions:
   contents: read
   checks: write
+  issues: write
 
 jobs:
   audit:
