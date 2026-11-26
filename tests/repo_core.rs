@@ -79,14 +79,16 @@ fn identical_content_makes_no_commit() {
 fn zero_byte_file_commits_once() {
     let (dir, repo) = temp_repo("main");
     write(dir.path(), "empty.md", b"");
-    assert!(repo
-        .commit_paths(&s(&["empty.md"]), "empty", &sig())
-        .unwrap()
-        .is_some());
-    assert!(repo
-        .commit_paths(&s(&["empty.md"]), "empty again", &sig())
-        .unwrap()
-        .is_none());
+    assert!(
+        repo.commit_paths(&s(&["empty.md"]), "empty", &sig())
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        repo.commit_paths(&s(&["empty.md"]), "empty again", &sig())
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(commit_count(&repo), 1);
     assert_eq!(head_paths(&repo), vec!["empty.md"]);
 }
@@ -365,8 +367,8 @@ fn every_unfinished_git_operation_counts_as_a_person_working() {
 /// changes mid-read is read again.
 #[test]
 fn committing_a_folder_that_changes_underneath_still_succeeds() {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter("davlog=warn")

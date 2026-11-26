@@ -296,10 +296,12 @@ async fn bootstrap_flag_abort_starts_nothing() {
         bootstrap: Some(Choice::Abort),
         extra_notifiers: vec![n],
     };
-    assert!(app::start(cfg(dir.path(), ""), options, None)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        app::start(cfg(dir.path(), ""), options, None)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert!(!dir.path().join(".git").exists());
 }
 

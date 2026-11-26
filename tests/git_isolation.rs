@@ -9,8 +9,10 @@ fn host_gitconfig_is_ignored() {
         "[core]\n\tautocrlf = true\n[user]\n\tname = Host User\n",
     )
     .unwrap();
-    std::env::set_var("HOME", home.path());
-    std::env::set_var("XDG_CONFIG_HOME", home.path().join("xdg"));
+    // FIXME: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("HOME", home.path()) };
+    // FIXME: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("XDG_CONFIG_HOME", home.path().join("xdg")) };
 
     // sanity: without isolation libgit2 sees the host config
     let before = git2::Config::open_default().unwrap();

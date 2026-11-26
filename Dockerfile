@@ -1,15 +1,15 @@
 # Build
 # Base images are pinned by digest so a build is reproducible; Dependabot proposes updates.
-FROM rust:1-bookworm@sha256:9181b56c2a21ab1d5e73cffe04fc762426d30aa7fac3c91141dd033f49a7fc8b AS build
+FROM rust:1-trixie@sha256:e84068000361bf3d4a5ba2b7647f62893528b1eb9f847d7a23b493f5ce8ea254 AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN cargo build --release --locked
 
 # Run. libgit2 and libssh2 are built into the binary; only OpenSSL is dynamic.
-FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
+FROM debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl libssl3 \
+    && apt-get install -y --no-install-recommends ca-certificates curl libssl3t64 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home-dir /data --no-create-home davlog
 COPY --from=build /src/target/release/davlog /usr/local/bin/davlog

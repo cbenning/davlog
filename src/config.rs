@@ -408,15 +408,15 @@ impl Config {
         } else {
             match (&raw.auth.password_file, &raw.auth.password_hash) {
                 (Some(_), Some(_)) => {
-                    return invalid("auth.password_file and auth.password_hash are both set")
+                    return invalid("auth.password_file and auth.password_hash are both set");
                 }
                 (Some(path), None) => PasswordCheck::Plain(file_secret(path)?),
                 (None, Some(hash)) => PasswordCheck::Argon2(hash.clone()),
                 (None, None) => {
                     return invalid(format!(
-                    "no auth password: set auth.password_file, auth.password_hash or {}_PASSWORD",
-                    brand::ENV_PREFIX
-                ))
+                        "no auth password: set auth.password_file, auth.password_hash or {}_PASSWORD",
+                        brand::ENV_PREFIX
+                    ));
                 }
             }
         };
@@ -476,7 +476,7 @@ impl Config {
                         return invalid(format!(
                             "notify.email[{i}]: smtp password missing: set password_file or {}_SMTP_PASSWORD",
                             brand::ENV_PREFIX
-                        ))
+                        ));
                     }
                 },
             };

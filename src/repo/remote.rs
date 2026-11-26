@@ -4,14 +4,14 @@
 
 use std::cell::RefCell;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use git2::{
     AutotagOption, Direction, ErrorClass, ErrorCode, FetchOptions, Oid, PushOptions,
     RemoteCallbacks,
 };
 
-use super::auth;
 use super::Repo;
+use super::auth;
 use crate::config::PushConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,13 +184,13 @@ impl Repo {
         match remote.push(&[refspec], Some(&mut opts)) {
             Ok(()) => {}
             Err(e) if e.code() == ErrorCode::NotFastForward => {
-                return Ok(PushResult::NonFastForward)
+                return Ok(PushResult::NonFastForward);
             }
             Err(e) => {
                 let rejection = observed.push_rejection.borrow().clone();
                 return Err(match rejection {
                     Some(msg) if looks_like_non_fast_forward(&msg) => {
-                        return Ok(PushResult::NonFastForward)
+                        return Ok(PushResult::NonFastForward);
                     }
                     Some(msg) => PushError::Other(msg),
                     None => observed.classify(&e),

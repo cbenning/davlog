@@ -20,7 +20,7 @@ use dav_server::fs::{
     DavDirEntry, DavFile, DavFileSystem, DavMetaData, FsError, FsFuture, FsResult, FsStream,
     OpenOptions, ReadDirMeta,
 };
-use futures_util::{future, stream, FutureExt};
+use futures_util::{FutureExt, future, stream};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::brand::TMP_DIR_NAME;
@@ -144,7 +144,7 @@ impl GitFs {
                         FsError::Forbidden
                     } else {
                         FsError::NotFound
-                    })
+                    });
                 }
                 Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -224,6 +224,11 @@ impl DavMetaData for Meta {
         self.dir
     }
 
+    /// Symlinks are never listed or opened, so no entry is one.
+    fn is_symlink(&self) -> bool {
+        false
+    }
+
     /// Size plus modification time in nanoseconds. Stable until the file changes.
     fn etag(&self) -> Option<String> {
         let nanos = self.modified.duration_since(UNIX_EPOCH).ok()?.as_nanos();
@@ -281,10 +286,10 @@ impl DavFileSystem for GitFs {
             if rel.is_empty() {
                 return Err(FsError::Forbidden);
             }
-            if let (Some(max), Some(size)) = (self.max_file_size, options.size) {
-                if size > max {
-                    return Err(FsError::TooLarge);
-                }
+            if let (Some(max), Some(size)) = (self.max_file_size, options.size)
+                && size > max
+            {
+                return Err(FsError::TooLarge);
             }
             let exists = match tokio::fs::symlink_metadata(&target).await {
                 Ok(md) if md.is_dir() => return Err(FsError::Forbidden),
@@ -393,6 +398,11 @@ impl DavFileSystem for GitFs {
             Ok(Box::new(Meta::from(&md)) as Box<dyn DavMetaData>)
         }
         .boxed()
+    }
+
+    /// A symlink is reported as not found, so this is the same as `metadata`.
+    fn symlink_metadata<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, Box<dyn DavMetaData>> {
+        self.metadata(path)
     }
 
     fn create_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
@@ -667,10 +677,10 @@ impl DavFile for WriteFile {
             detached(async move {
                 // The temp file has default permissions. Keep the replaced file's, so an
                 // executable script stays executable (git records the mode).
-                if let Ok(existing) = tokio::fs::metadata(&target).await {
-                    if existing.is_file() {
-                        let _ = tokio::fs::set_permissions(&temp, existing.permissions()).await;
-                    }
+                if let Ok(existing) = tokio::fs::metadata(&target).await
+                    && existing.is_file()
+                {
+                    let _ = tokio::fs::set_permissions(&temp, existing.permissions()).await;
                 }
                 tokio::fs::rename(&temp, &target)
                     .await

@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use davlog::app::{self, AppError, AppExit, Options};
-use davlog::bootstrap::{bootstrap_flag, Terminal};
+use davlog::bootstrap::{Terminal, bootstrap_flag};
 use davlog::brand;
 use davlog::config::Config;
 
@@ -41,7 +41,7 @@ fn config_path(args: &[String]) -> Result<String, String> {
 }
 
 async fn termination_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
     let mut term = signal(SignalKind::terminate()).expect("install SIGTERM handler");
     let mut int = signal(SignalKind::interrupt()).expect("install SIGINT handler");
     tokio::select! {

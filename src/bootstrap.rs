@@ -8,13 +8,13 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use git2::build::RepoBuilder;
 use git2::{FetchOptions, RemoteCallbacks};
 
 use crate::brand;
 use crate::config::Config;
-use crate::repo::{self, auth, remote_has_branch, Repo};
+use crate::repo::{self, Repo, auth, remote_has_branch};
 
 /// Exit code when the server needs a bootstrap answer and cannot ask.
 pub const EXIT_NEEDS_BOOTSTRAP_ANSWER: i32 = 10;

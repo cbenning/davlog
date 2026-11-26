@@ -10,10 +10,10 @@ use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use dav_server::DavHandler;
 use dav_server::body::Body;
 use dav_server::memls::MemLs;
-use dav_server::DavHandler;
-use http::{header, HeaderValue, Method, Request, Response, StatusCode};
+use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::service::service_fn;
@@ -305,12 +305,13 @@ fn path_is_utf8(path: &str) -> bool {
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(v) = u8::from_str_radix(&path[i + 1..i + 3], 16) {
-                decoded.push(v);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Ok(v) = u8::from_str_radix(&path[i + 1..i + 3], 16)
+        {
+            decoded.push(v);
+            i += 3;
+            continue;
         }
         decoded.push(bytes[i]);
         i += 1;
@@ -464,14 +465,14 @@ async fn route(ctx: &Ctx, peer: SocketAddr, req: Request<Incoming>) -> Response<
         }
     }
 
-    if matches!(req.method().as_str(), "PUT" | "COPY" | "MKCOL" | "PATCH") {
-        if let Err(problem) = ctx.disk.check() {
-            warn!(%problem, "refusing a write: the disk is too full");
-            return text_response(
-                StatusCode::INSUFFICIENT_STORAGE,
-                "the server is out of space for new data; deletes still work\n",
-            );
-        }
+    if matches!(req.method().as_str(), "PUT" | "COPY" | "MKCOL" | "PATCH")
+        && let Err(problem) = ctx.disk.check()
+    {
+        warn!(%problem, "refusing a write: the disk is too full");
+        return text_response(
+            StatusCode::INSUFFICIENT_STORAGE,
+            "the server is out of space for new data; deletes still work\n",
+        );
     }
 
     if let Some(max) = ctx.max_file_size {
@@ -492,14 +493,16 @@ async fn route(ctx: &Ctx, peer: SocketAddr, req: Request<Incoming>) -> Response<
     if propfind && res.status().as_u16() == 207 {
         res = quote_getetags(res, MAX_PROPFIND_RESPONSE).await;
     }
-    if mutating && res.status().is_success() && ctx.wait_for_commit {
-        if let Err(e) = ctx.committer.flush().await {
-            error!(error = %e, "commit failed after a successful request");
-            return text_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "the change was saved but could not be committed\n",
-            );
-        }
+    if mutating
+        && res.status().is_success()
+        && ctx.wait_for_commit
+        && let Err(e) = ctx.committer.flush().await
+    {
+        error!(error = %e, "commit failed after a successful request");
+        return text_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the change was saved but could not be committed\n",
+        );
     }
     res
 }

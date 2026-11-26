@@ -10,11 +10,11 @@ pub mod auth;
 mod maintenance;
 mod remote;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use git2::{ConfigLevel, IndexAddOption, Oid, Repository, RepositoryInitOptions, Signature};
-pub use maintenance::{run_maintenance_worker, MaintenanceLimits, MaintenanceReport};
-pub use remote::{remote_has_branch, Divergence, PushError, PushResult};
+pub use maintenance::{MaintenanceLimits, MaintenanceReport, run_maintenance_worker};
+pub use remote::{Divergence, PushError, PushResult, remote_has_branch};
 
 /// Hand memory that libgit2 has freed back to the operating system. Repacking and pushing
 /// run on worker threads whose allocator arenas otherwise keep what they freed, so the

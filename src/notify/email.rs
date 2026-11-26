@@ -5,8 +5,8 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use lettre::message::header::ContentType;
 use lettre::message::Mailbox;
+use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 

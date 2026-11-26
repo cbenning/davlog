@@ -5,11 +5,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use argon2::Argon2;
 use argon2::password_hash::phc::PasswordHash;
 use argon2::password_hash::{PasswordHasher, PasswordVerifier};
-use argon2::Argon2;
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
@@ -133,10 +133,10 @@ impl Authenticator {
             let mut map = self.remembered.lock().unwrap_or_else(|p| p.into_inner());
             let now = Instant::now();
             map.retain(|_, expires| *expires > now);
-            if map.len() >= self.max_remembered {
-                if let Some(oldest) = map.iter().min_by_key(|(_, e)| **e).map(|(k, _)| *k) {
-                    map.remove(&oldest);
-                }
+            if map.len() >= self.max_remembered
+                && let Some(oldest) = map.iter().min_by_key(|(_, e)| **e).map(|(k, _)| *k)
+            {
+                map.remove(&oldest);
             }
             map.insert(key, now + REMEMBER_FOR);
         }
@@ -168,8 +168,8 @@ pub fn check(auth: &AuthConfig, header: Option<&str>) -> bool {
 mod tests {
     use super::*;
     use crate::config::{AuthConfig, PasswordCheck, Secret};
-    use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
 
     fn plain() -> AuthConfig {
         AuthConfig {

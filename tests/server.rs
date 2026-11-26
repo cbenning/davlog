@@ -131,10 +131,12 @@ async fn correct_password_put_get_roundtrip_and_server_header() {
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::CREATED);
-    assert!(r.headers()["server"]
-        .to_str()
-        .unwrap()
-        .starts_with("davlog/"));
+    assert!(
+        r.headers()["server"]
+            .to_str()
+            .unwrap()
+            .starts_with("davlog/")
+    );
     let r = req(&c, "GET", &s.url("/a.md")).send().await.unwrap();
     assert_eq!(r.text().await.unwrap(), "hello");
 }

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use common::*;
-use dav_server::{memls::MemLs, DavHandler};
+use dav_server::{DavHandler, memls::MemLs};
 use davlog::change::{Change, Op};
 use davlog::davfs::GitFs;
 use http::{HeaderMap, Request, StatusCode};
@@ -567,9 +567,11 @@ async fn overwriting_a_file_keeps_its_permissions() {
     assert!(put(&e, "/run.sh", b"#!/bin/sh\n").await.is_success());
     let path = e.dir.path().join("run.sh");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert!(put(&e, "/run.sh", b"#!/bin/sh\necho hi\n")
-        .await
-        .is_success());
+    assert!(
+        put(&e, "/run.sh", b"#!/bin/sh\necho hi\n")
+            .await
+            .is_success()
+    );
     let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o755, "the executable bit was lost on overwrite");
 }
