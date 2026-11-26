@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use git2::{Odb, Oid, Repository};
 use tracing::{info, warn};
 
@@ -301,10 +301,10 @@ fn unkept_packs(pack_dir: &Path) -> Result<Vec<String>> {
     let mut bases = Vec::new();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if let Some(base) = name.strip_suffix(".pack") {
-            if !pack_dir.join(format!("{base}.keep")).exists() {
-                bases.push(base.to_string());
-            }
+        if let Some(base) = name.strip_suffix(".pack")
+            && !pack_dir.join(format!("{base}.keep")).exists()
+        {
+            bases.push(base.to_string());
         }
     }
     Ok(bases)
@@ -349,10 +349,10 @@ fn remove_stale_verify_dirs(gitdir: &Path) {
         return;
     };
     for entry in entries.flatten() {
-        if entry.file_name().to_string_lossy().starts_with("verify-") {
-            if let Err(e) = std::fs::remove_dir_all(entry.path()) {
-                warn!(error = %e, "could not remove a stale verification directory");
-            }
+        if entry.file_name().to_string_lossy().starts_with("verify-")
+            && let Err(e) = std::fs::remove_dir_all(entry.path())
+        {
+            warn!(error = %e, "could not remove a stale verification directory");
         }
     }
 }

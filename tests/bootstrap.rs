@@ -5,8 +5,8 @@ use std::path::Path;
 
 use common::*;
 use davlog::bootstrap::{
-    apply, bootstrap_flag, inspect, resolve, Action, Choice, Reason, ResolveError, Situation,
-    Terminal, EXIT_NEEDS_BOOTSTRAP_ANSWER,
+    Action, Choice, EXIT_NEEDS_BOOTSTRAP_ANSWER, Reason, ResolveError, Situation, Terminal, apply,
+    bootstrap_flag, inspect, resolve,
 };
 use davlog::config::Config;
 

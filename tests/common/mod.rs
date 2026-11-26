@@ -9,7 +9,8 @@ use tempfile::TempDir;
 pub fn setup() {
     davlog::repo::isolate_from_user_git_config();
     // the server repacks in a child process; in a test the program to run is the real one
-    std::env::set_var("DAVLOG_WORKER_EXE", env!("CARGO_BIN_EXE_davlog"));
+    // FIXME: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("DAVLOG_WORKER_EXE", env!("CARGO_BIN_EXE_davlog")) };
 }
 
 pub fn temp_repo(branch: &str) -> (TempDir, Repo) {

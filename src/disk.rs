@@ -5,8 +5,8 @@
 use std::fmt;
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use tracing::debug;
@@ -64,13 +64,13 @@ impl DiskGuard {
     pub fn check(&self) -> Result<(), DiskProblem> {
         if self.min_free > 0 {
             // If the filesystem cannot be asked, do not block writes over it.
-            if let Ok(free) = self.free_space() {
-                if free < self.min_free {
-                    return Err(DiskProblem::LowSpace {
-                        free,
-                        min: self.min_free,
-                    });
-                }
+            if let Ok(free) = self.free_space()
+                && free < self.min_free
+            {
+                return Err(DiskProblem::LowSpace {
+                    free,
+                    min: self.min_free,
+                });
             }
         }
         if let Some(max) = self.max_repo {

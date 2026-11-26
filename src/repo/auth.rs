@@ -1,7 +1,7 @@
 //! Credentials and host-key checks for pushing and fetching.
 
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use git2::cert::Cert;
 use git2::{CertificateCheckStatus, Cred, CredentialType, Error, ErrorClass, ErrorCode};
 use sha2::{Digest, Sha256};
@@ -61,7 +61,7 @@ pub fn has_hashed_entries(known_hosts: &str) -> bool {
 /// cannot loop forever.
 pub fn credentials_callback(
     auth: &PushAuth,
-) -> impl FnMut(&str, Option<&str>, CredentialType) -> Result<Cred, Error> {
+) -> impl FnMut(&str, Option<&str>, CredentialType) -> Result<Cred, Error> + use<> {
     let auth = auth.clone();
     let mut attempts = 0u32;
     move |_url, username_from_url, allowed| {
@@ -111,7 +111,7 @@ pub fn credentials_callback(
 pub fn certificate_callback<'a>(
     auth: &PushAuth,
     rejected: &'a std::cell::RefCell<Option<String>>,
-) -> impl FnMut(&Cert<'_>, &str) -> Result<CertificateCheckStatus, Error> + 'a {
+) -> impl FnMut(&Cert<'_>, &str) -> Result<CertificateCheckStatus, Error> + 'a + use<'a> {
     let known_hosts = match auth {
         PushAuth::SshKey { known_hosts, .. } => Some(known_hosts.clone()),
         _ => None,
@@ -148,8 +148,8 @@ pub fn certificate_callback<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
     use sha2::{Digest, Sha256};
 
     fn line(hosts: &str, key: &[u8]) -> String {
