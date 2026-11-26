@@ -4,6 +4,21 @@ All notable changes are listed here. Versions follow [Semantic Versioning](https
 
 ## Unreleased
 
+## 1.0.2 - 2026-11-26
+
+Security and dependency fixes:
+
+- **SMTP fixes from `lettre` 0.11.24.** davlog sends alert email through `lettre`. 0.11.23 had six advisories (RUSTSEC-2026-0560 to 0565): a man-in-the-middle could forge replies to `STARTTLS`, a message to an address with a quoted local part could go to a different address, SMTP command injection through a bare LF or CR in a message, two panics (an `EHLO` reply of only white space, a display name containing CR or LF), and unbounded buffering of an SMTP reply.
+- **`libz-sys` 1.1.33** fixes a heap buffer overflow in zlib's `gz_vacate()` (RUSTSEC-2026-0544). It is built into libgit2.
+- **`url` 2.5.9** fixes a stack overflow in `Url::origin()` on deeply nested `blob:` URLs (RUSTSEC-2026-0592).
+- **`lru` is no longer a dependency** (RUSTSEC-2026-0253, unsound `LruCache::pop()`). It came from the `localfs` feature of `dav-server`, which davlog does not use, so `dav-server` is now built without its default features.
+- Every other dependency is at its latest version, including `dav-server` 0.12, `toml` 1, `sha2` 0.11, `base64` 0.23 and `reqwest` 0.13. `chrono` and `humantime` are still reported as unmaintained; see #26.
+
+Other changes:
+
+- **The Docker image is built on and runs on Debian 13 (trixie)**, not Debian 12 (bookworm). The image has not had a soak test on trixie yet.
+- The crate uses Rust edition 2024.
+- GitHub Actions are updated to their latest major versions.
 - The README describes the 43-hour soak test and what it found.
 - The README's "Known limits" notes that a container close to its memory limit can occasionally have the server killed instead of the repack, and that the restart loses nothing.
 
